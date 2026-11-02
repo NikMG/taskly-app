@@ -1,0 +1,94 @@
+{
+  "disableAllHooks": false,
+  "enableAllProjectMcpServers": false,
+  "autoMemoryEnabled": false,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I -c 'import json, re, sys; command = json.load(sys.stdin)[\"tool_input\"][\"command\"]; ok = re.fullmatch(r\"\\.github/agent/run_tests\\.sh (backend|frontend)( --coverage)?( --)?( (backend/tests|frontend/src)/[A-Za-z0-9_./-]+)*\", command); sys.exit(0 if ok else \"Refused: the only allowed command is .github/agent/run_tests.sh, in the forms given by the run-sandboxed-tests skill.\")' || exit 2",
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "disableBypassPermissionsMode": "disable",
+    "disableAutoMode": "disable",
+    "blockReadsOutsideWorkingDirectories": true,
+    "blockWritesOutsideWorkingDirectories": true,
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Skill(analyze-test-impact)",
+      "Skill(find-coverage-gaps)",
+      "Skill(report-test-results)",
+      "Skill(run-sandboxed-tests)",
+      "Skill(write-backend-tests)",
+      "Skill(write-frontend-tests)",
+      "Edit(backend/tests/**)",
+      "Edit(frontend/src/**/*.test.ts)",
+      "Edit(frontend/src/**/*.test.tsx)",
+      "Edit(frontend/src/test/**)",
+      "Bash(.github/agent/run_tests.sh *)"
+    ],
+    "deny": [
+      "Read(.env*)",
+      "Read(//**/.env*)",
+      "Edit(.env*)",
+      "Edit(//**/.env*)",
+      "Read(//proc/**)",
+      "Read(//sys/**)",
+      "Read(//etc/**)",
+      "Read(//private/etc/**)",
+      "Read(~/.*)",
+      "Read(~/.*/**)",
+      "Edit(~/.*)",
+      "Edit(~/.*/**)",
+      "Read(.git/**)",
+      "Edit(.git/**)",
+      "Edit(.claude/**)",
+      "Edit(.github/**)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(echo *)",
+      "Bash(printf *)",
+      "Bash(pwd *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(find *)",
+      "Bash(wc *)",
+      "Bash(which *)",
+      "Bash(diff *)",
+      "Bash(stat *)",
+      "Bash(du *)",
+      "Bash(cd *)",
+      "Bash(file *)",
+      "Bash(ps *)",
+      "Bash(env *)",
+      "Bash(printenv *)",
+      "Bash(git *)",
+      "Bash(docker *)",
+      "Bash(id *)",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "Task",
+      "NotebookEdit",
+      "Monitor",
+      "Workflow",
+      "mcp__*"
+    ]
+  }
+}
