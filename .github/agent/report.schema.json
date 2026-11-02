@@ -12,6 +12,7 @@
     "files_analyzed",
     "tests_written",
     "suspected_bugs",
+    "obsolete_tests",
     "limitations"
   ],
   "properties": {
@@ -30,6 +31,7 @@
         "tests_updated",
         "tests_created_and_updated",
         "no_tests_needed",
+        "needs_human",
         "blocked"
       ]
     },
@@ -140,6 +142,33 @@
           "evidence": {
             "type": "string",
             "maxLength": 500
+          }
+        }
+      }
+    },
+    "obsolete_tests": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "test_name",
+          "reason"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "test_name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
           }
         }
       }

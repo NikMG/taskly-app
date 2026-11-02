@@ -19,6 +19,8 @@ def good_report(**over):
                            "covers": ["a()"], "rationale": "covers branch"}],
         "suspected_bugs": [{"path": "backend/app/a.py", "line": 3, "description": "off by one",
                             "evidence": "a(0) == 1"}],
+        "obsolete_tests": [{"path": "backend/tests/test_old.py", "test_name": "test_removed_helper",
+                            "reason": "helper was deleted"}],
         "limitations": ["none"],
     }
     r.update(over)
@@ -156,6 +158,8 @@ def test_full_comment(tmp_path):
     assert rr.sanitize("backend/tests/test_a.py") in out and "off by one" in out
     claims = out.index("Agent claims")
     assert out.index("Verified test results") < claims and out.index("Added tests") > claims
+    assert out.index("Obsolete tests") > claims
+    assert rr.sanitize("test_removed_helper") in out and "helper was deleted" in out
 
 
 def test_agent_numbers_never_in_verified_section(tmp_path):
@@ -227,6 +231,10 @@ def test_schema_invalid_report_not_echoed(tmp_path):
     lambda r: r.update(summary="x" * 601), lambda r: r.pop("limitations"),
     lambda r: r.update(limitations=["x"] * 21), lambda r: r["files_analyzed"][0].update(stack="rust"),
     lambda r: r["suspected_bugs"][0].update(line="3"), lambda r: r["tests_written"][0].update(zzz=1),
+    lambda r: r.pop("obsolete_tests"), lambda r: r.update(obsolete_tests=r["obsolete_tests"] * 21),
+    lambda r: r["obsolete_tests"][0].pop("test_name"), lambda r: r["obsolete_tests"][0].update(zzz=1),
+    lambda r: r["obsolete_tests"][0].update(test_name="x" * 201),
+    lambda r: r["obsolete_tests"][0].update(reason="x" * 301),
 ])
 def test_schema_rejections(mutate):
     r = good_report()
@@ -239,9 +247,15 @@ def test_schema_null_line_and_all_decisions():
     r = good_report()
     r["suspected_bugs"][0]["line"] = None
     assert rr.validate_report(r)[0]
-    for d in ("tests_created", "tests_updated", "tests_created_and_updated", "no_tests_needed", "blocked"):
+    for d in ("tests_created", "tests_updated", "tests_created_and_updated", "no_tests_needed",
+              "needs_human", "blocked"):
         assert rr.validate_report(good_report(decision=d))[0]
     assert rr.validate_report(good_report(mode="backfill"))[0]
+
+
+def test_empty_obsolete_tests_section_is_omitted(tmp_path):
+    out = render_cli(tmp_path, report=w(tmp_path, "r.json", good_report(obsolete_tests=[])))
+    assert "Obsolete tests" not in out
 
 
 def test_schema_every_string_and_array_bounded():
@@ -270,6 +284,7 @@ def test_injection_in_valid_report_is_neutralised(tmp_path):
     rep["files_analyzed"][0].update(path=inj, reason=inj)
     rep["tests_written"][0].update(path=inj, covers=[inj], rationale=inj)
     rep["suspected_bugs"][0].update(path=inj, description=inj, evidence=inj)
+    rep["obsolete_tests"][0].update(path=inj, test_name=inj, reason=inj)
     pc = dict(PC_OK, files=[{"path": inj, "change": "text"}],
               violations=[{"file": inj, "rule": inj, "line": 1, "detail": inj}],
               warnings=[{"file": inj, "rule": "w", "line": None, "detail": inj}])

@@ -318,6 +318,11 @@ def section_claims(report: Any, rstatus: str) -> list[str]:
         line = f":{b['line']}" if isinstance(b["line"], int) else ""
         out.append(f"- {sanitize(b['path'], 200)}{line} - {sanitize(b['description'], 500)}"
                    f" (evidence: {sanitize(b['evidence'], 500)})")
+    if report["obsolete_tests"]:
+        out += ["", "Obsolete tests (left in place for a human to review):"]
+        for t in report["obsolete_tests"][:20]:
+            out.append(f"- {sanitize(t['path'], 200)} - {sanitize(t['test_name'], 200)}"
+                       f" - {sanitize(t['reason'], 300)}")
     if report["limitations"]:
         out += ["", "Limitations:"]
         out += [f"- {sanitize(x, 300)}" for x in report["limitations"][:20]]
