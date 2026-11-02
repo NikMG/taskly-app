@@ -1,0 +1,50 @@
+name: Agent tooling
+
+on:
+  pull_request:
+    paths:
+      - ".github/agent/**"
+      - ".github/workflows/**"
+      - ".claude/**"
+      - "backend/requirements.txt"
+      - "backend/pyproject.toml"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/vite.config.ts"
+  push:
+    branches: [main]
+    paths:
+      - ".github/agent/**"
+      - ".github/workflows/**"
+      - ".claude/**"
+      - "backend/requirements.txt"
+      - "backend/pyproject.toml"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/vite.config.ts"
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions: {}
+
+concurrency:
+  group: agent-tooling-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  agent-tooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/agent/requirements.txt
+      - run: pip install --require-hashes -r .github/agent/requirements.txt
+      - run: python -m pytest -c .github/agent/pytest.ini .github/agent/tests
