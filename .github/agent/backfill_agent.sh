@@ -9,7 +9,7 @@
 # results come from here rather than from what the agent says.
 #
 # Exit: 0 patch ready, 1 agent, patch check, tests or gap check failed, 2 usage or
-# setup error, 3 no key.
+# setup error, 3 no key, 4 the key appeared in the outputs.
 set -euo pipefail
 
 die() { echo "backfill_agent.sh: $*" >&2; exit 2; }
@@ -33,8 +33,10 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
   echo
   [ -n "$ANTHROPIC_API_KEY" ] || { echo "backfill_agent.sh: no key given" >&2; exit 3; }
 fi
-export ANTHROPIC_API_KEY
-unset CLAUDE_CODE_OAUTH_TOKEN
+# Only the agent step gets the key, as in CI: the sandbox setup, the guards and the
+# re-run of the tests have no use for it.
+api_key=$ANTHROPIC_API_KEY
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
 
 repo=$(git -C "$here" rev-parse --show-toplevel)
 tmp=$(mktemp -d)
@@ -63,7 +65,7 @@ export PATH=$tmp/venv/bin:$PATH
 agent_rc=0 patch_rc=0 tests_rc=0 gaps_rc=0
 set +e
 echo "Running the agent. This usually takes several minutes..."
-AGENT_OUTPUT_DIR=$out "$agent_dir/run_agent.sh" backfill "$stack"
+ANTHROPIC_API_KEY=$api_key AGENT_OUTPUT_DIR=$out "$agent_dir/run_agent.sh" backfill "$stack"
 agent_rc=$?
 "$AGENT_PYTHON" -I "$agent_dir/check_patch.py" "$out/agent.patch" --output "$out/patch_check.json"
 patch_rc=$?
@@ -79,6 +81,11 @@ set +e
 gaps_rc=$?
 set -e
 echo
+# run_agent.sh already scanned its own outputs; this covers the independent re-run.
+if grep -rlF -f <(printf '%s\n' "$api_key") "$tmp/verify" "$tmp/verify.log" >/dev/null 2>&1; then
+  echo "backfill_agent.sh: the key appeared in the test outputs" >&2
+  exit 4
+fi
 echo "Patch:  $out/agent.patch"
 echo "Report: $out/report.json"
 echo "Tests:  $tmp/verify.log"
