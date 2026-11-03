@@ -4,7 +4,20 @@ import pytest
 from pydantic import ValidationError
 
 from app.features.todos.schemas import TodoUpdate
-from app.features.todos.validators import validate_patch_fields
+from app.features.todos.validators import days_left, validate_patch_fields
+
+
+@pytest.mark.parametrize(
+    ("due", "today", "expected"),
+    [
+        (date(2026, 10, 15), date(2026, 10, 10), 5),
+        (date(2026, 10, 10), date(2026, 10, 10), 0),
+        (date(2026, 10, 10), date(2026, 10, 15), -5),
+        (date(2027, 1, 1), date(2026, 12, 31), 1),
+    ],
+)
+def test_days_left_counts_days_until_due_and_negative_when_overdue(due, today, expected):
+    assert days_left(due, today) == expected
 
 
 def test_rejects_an_empty_patch():
