@@ -4,7 +4,25 @@ import pytest
 from pydantic import ValidationError
 
 from app.features.todos.schemas import TodoUpdate
-from app.features.todos.validators import validate_patch_fields
+from app.features.todos.validators import is_overdue, validate_patch_fields
+
+TODAY = date(2026, 10, 15)
+
+
+@pytest.mark.parametrize(
+    ("due_date", "completed", "expected"),
+    [
+        (date(2026, 10, 14), False, True),
+        (TODAY, False, False),
+        (date(2026, 10, 16), False, False),
+        (None, False, False),
+        (date(2026, 10, 14), True, False),
+    ],
+)
+def test_is_overdue_only_for_open_tasks_due_before_today(
+    due_date, completed, expected
+):
+    assert is_overdue(due_date, completed, TODAY) is expected
 
 
 def test_rejects_an_empty_patch():

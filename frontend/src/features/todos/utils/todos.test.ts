@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectTodos } from './todos'
+import { countActive, selectTodos } from './todos'
 import type { Todo } from '../types'
 
 const base: Todo = {
@@ -12,6 +12,18 @@ const base: Todo = {
   created_at: '2026-10-01T12:00:00Z',
   updated_at: '2026-10-01T12:00:00Z',
 }
+
+describe('countActive', () => {
+  it('counts only incomplete todos', () => {
+    const todos = [
+      base,
+      { ...base, id: 2, completed: true },
+      { ...base, id: 3 },
+    ]
+    expect(countActive(todos)).toBe(2)
+    expect(countActive([])).toBe(0)
+  })
+})
 
 describe('selectTodos', () => {
   it('combines status with a case-insensitive search in the description', () => {
