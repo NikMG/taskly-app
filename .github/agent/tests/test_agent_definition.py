@@ -333,6 +333,29 @@ def test_boundaries_mode_needs_the_selftest_flag(tmp_path):
     assert "not-a-real-key" not in result.stdout + result.stderr
 
 
+# ---------------------------------------------------------------- backfill_agent.sh
+
+BACKFILL = REPO / ".github/agent/backfill_agent.sh"
+
+
+def test_backfill_rejects_a_bad_stack(tmp_path):
+    env = {**clean_env(tmp_path), "ANTHROPIC_API_KEY": "not-a-real-key"}
+    result = subprocess.run(["bash", str(BACKFILL), "../etc"], env=env, capture_output=True,
+                            text=True, timeout=30, check=False)
+    assert result.returncode == 2 and "usage" in result.stderr
+    assert "not-a-real-key" not in result.stdout + result.stderr
+
+
+def test_backfill_works_on_a_clone_and_never_publishes():
+    text = BACKFILL.read_text(encoding="utf-8")
+    assert "git clone --quiet --no-hardlinks" in text
+    assert "read -r -s" in text and "set -x" not in text
+    for forbidden in ("git push", "git commit", "git apply", "gh "):
+        assert forbidden not in text
+    # Both independent checks must decide the exit code, not only the agent's own.
+    assert '"$patch_rc" != 0' in text and '"$tests_rc" != 0' in text
+
+
 # ---------------------------------------------------------------- smoke_agent.sh
 
 def test_smoke_never_echoes_the_key():
