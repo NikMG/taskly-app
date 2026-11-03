@@ -398,12 +398,20 @@ def test_backfill_works_on_a_clone_and_never_publishes():
     assert '"$patch_rc" != 0' in text and '"$tests_rc" != 0' in text and '"$gaps_rc" != 0' in text
 
 
+def test_backfill_keeps_going_until_the_gap_check_passes_but_within_a_limit():
+    text = BACKFILL.read_text(encoding="utf-8")
+    assert 'seq 1 "$max_passes"' in text and "BACKFILL_MAX_PASSES:-3" in text
+    assert "AGENT_MAX_BUDGET_USD=${AGENT_MAX_BUDGET_USD:-1.5}" in text
+    assert '"$current_patch" = "$previous_patch"' in text
+
+
 def test_backfill_gives_the_key_only_to_the_agent_step():
     text = BACKFILL.read_text(encoding="utf-8")
     assert "unset ANTHROPIC_API_KEY" in text and "export ANTHROPIC_API_KEY" not in text
     assert text.count("ANTHROPIC_API_KEY=$api_key") == 1
-    line = next(row for row in text.splitlines() if "ANTHROPIC_API_KEY=$api_key" in row)
-    assert "run_agent.sh" in line
+    # The assignment and the agent call are one command, continued over two lines.
+    command = text[text.index("ANTHROPIC_API_KEY=$api_key"):].split("\n  agent_rc=$?")[0]
+    assert command.count("\n") == 1 and "run_agent.sh" in command
     assert text.index("unset ANTHROPIC_API_KEY") < text.index("prepare_sandbox.sh")
 
 

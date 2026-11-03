@@ -73,11 +73,10 @@ A mock at the boundary of a system outside the unit, such as a database session 
 
 ## Finishing
 
-Keep a ranked list of file, behaviours and target test file, then use the stack's writing skill. After each full run, re-read the coverage and update the list. You are done when every missed line or branch has a test or a decision. If the list still has work and the budget allows it, go back and do that work rather than reporting it: a run that ends with work it could have done counts as incomplete.
+Keep a ranked list of file, behaviours and target test file, then use the stack's writing skill. After each full run, re-read the coverage and update the list. You are done when every missed line or branch has a test or a decision. If the list still has work, go back and do it rather than reporting it. A run that ends with work left counts as incomplete. You cannot see the budget, so do not stop to save it: if it runs out, the pipeline handles that.
 
-Only two limits end the work early, and both go in `limitations` with the files left over:
+Only one limit ends the work early, and it goes in `limitations` with the files left over: the patch guard rejects more than 30 changed files or 1500 added lines. Keep clear of it and finish the highest-ranked work.
 
-- The patch guard rejects more than 30 changed files or 1500 added lines. Keep clear of those limits and finish the highest-ranked work.
-- The run's budget is about to end. Stop writing and leave enough to run the full stack and report.
+A run may continue earlier work. Tests already in the tree are yours to build on, and the coverage report shows what is left.
 
 Report only figures you read from these reports.
