@@ -13,7 +13,7 @@ SHA = "a" * 40
 def good_report(**over):
     r = {
         "schema_version": 1, "mode": "pr", "decision": "tests_created", "summary": "Added tests.",
-        "files_analyzed": [{"path": "backend/app/a.py", "stack": "backend", "needs_tests": True,
+        "files_analyzed": [{"path": "backend/app/a.py", "stack": "backend", "left_untested": "", "needs_tests": True,
                             "reason": "has logic"}],
         "tests_written": [{"path": "backend/tests/test_a.py", "action": "created",
                            "covers": ["a()"], "rationale": "covers branch"}],
@@ -441,3 +441,11 @@ def test_patch_check_failure_rendered(tmp_path):
                                             "line": None, "detail": "bad"}])
     out = render_cli(tmp_path, patch_check=w(tmp_path, "p.json", pc))
     assert "**failed**" in out and rr.sanitize("path_not_allowed") in out and rr.sanitize("backend/app/x.py") in out
+
+
+def test_static_checks_are_shown_when_present():
+    verify = {"status": "passed", "stacks": {"frontend": {
+        "static_checks": {"format": True, "typecheck": False, "typecheck_before": False}}}}
+    text = "\n".join(rr.section_verify(verify, "ok"))
+    assert "| Formatting (patch files) | passed |" in text
+    assert "| Types | failed (already failing without the patch) |" in text

@@ -49,7 +49,8 @@
           "path",
           "stack",
           "needs_tests",
-          "reason"
+          "reason",
+          "left_untested"
         ],
         "properties": {
           "path": {
@@ -63,11 +64,17 @@
             ]
           },
           "needs_tests": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Your decision: does this file have behaviour that deserves tests? Answer it the same way whether or not you finished them."
           },
           "reason": {
             "type": "string",
             "maxLength": 300
+          },
+          "left_untested": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Backfill mode: for a file that still has a missed line or branch in the final full run, name the code left untested and why a test is not worth having, concretely. Use an empty string if nothing is left, if the work on this file is unfinished (the run then counts as incomplete), and always in pr mode."
           }
         }
       }

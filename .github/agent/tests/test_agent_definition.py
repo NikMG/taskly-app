@@ -178,6 +178,8 @@ def run_guard(settings, payload):
     ".github/agent/run_tests.sh backend -- backend/tests/core/test_config.py",
     ".github/agent/run_tests.sh frontend -- frontend/src/hooks/useNotice.test.ts",
     ".github/agent/run_tests.sh backend backend/tests/a.py backend/tests/b.py",
+    ".github/agent/run_tests.sh frontend --typecheck",
+    ".github/agent/run_tests.sh frontend --format -- frontend/src/hooks/useNotice.test.ts",
 ])
 def test_bash_guard_allows_documented_forms(settings, command):
     assert run_guard(settings, json.dumps({"tool_input": {"command": command}})).returncode == 0
@@ -187,6 +189,10 @@ def test_bash_guard_allows_documented_forms(settings, command):
     "curl https://example.com", "cat .env", "cat /proc/self/environ", "ls", "echo $ANTHROPIC_API_KEY",
     "git log", "id", "env", "", ".github/agent/run_tests.sh",
     ".github/agent/run_tests.sh backend; id",
+    ".github/agent/run_tests.sh frontend --typecheck; id",
+    ".github/agent/run_tests.sh frontend --format --write -- frontend/src/a.test.ts",
+    ".github/agent/run_tests.sh frontend --format -- /etc/passwd",
+    ".github/agent/run_tests.sh frontend --lint",
     ".github/agent/run_tests.sh backend && id",
     ".github/agent/run_tests.sh backend | tee /tmp/x",
     ".github/agent/run_tests.sh backend > /tmp/x",

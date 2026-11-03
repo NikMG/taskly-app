@@ -368,6 +368,65 @@ def test_flow_flaky_rerun_fails_the_patch(flow):
     assert r["stacks"]["backend"]["flaky_rerun"] == {"runs": 2, "all_passed": False}
 
 
+FRONTEND_TEST = "import { expect, it } from 'vitest'\n\nit('adds', () => {\n  expect(1 + 2).toBe(3)\n})\n"
+
+
+def frontend_flow(flow):
+    flow.scope = {"stacks": ["frontend"], "source_files": {"backend": [], "frontend": []}}
+    return flow.patch_adding("frontend/src/a.test.ts", FRONTEND_TEST)
+
+
+def static_plan(format_rc=0, types_rc=0, types_before=0):
+    # baseline, types before, with patch, two re-runs, format, types after
+    return [{"junit": junit(2)}, {"rc": types_before}, {"junit": junit(3)}, {"junit": junit(1)}, {"junit": junit(1)},
+            {"rc": format_rc}, {"rc": types_rc}]
+
+
+def test_flow_frontend_patch_runs_the_static_checks_on_its_own_files(flow):
+    patch = frontend_flow(flow)
+    flow.plan = static_plan()
+    r = flow.run(patch)
+    assert r["status"] == "passed"
+    assert ("frontend", ["--format", "--", "frontend/src/a.test.ts"]) in flow.calls
+    assert flow.calls.count(("frontend", ["--typecheck"])) == 2
+    assert r["stacks"]["frontend"]["static_checks"]["format"] is True
+
+
+def test_flow_badly_formatted_patch_fails(flow):
+    patch = frontend_flow(flow)
+    flow.plan = static_plan(format_rc=1)
+    r = flow.run(patch)
+    assert r["status"] == "failed" and r["reason"] == "format_failed"
+
+
+def test_flow_patch_that_adds_a_type_error_fails(flow):
+    patch = frontend_flow(flow)
+    flow.plan = static_plan(types_rc=1)
+    r = flow.run(patch)
+    assert r["status"] == "failed" and r["reason"] == "typecheck_failed"
+
+
+def test_flow_type_error_already_in_the_pull_request_does_not_count(flow):
+    patch = frontend_flow(flow)
+    flow.plan = static_plan(types_rc=1, types_before=1)
+    r = flow.run(patch)
+    assert r["status"] == "passed" and r["stacks"]["frontend"]["static_checks"]["typecheck_before"] is False
+
+
+def test_flow_sandbox_failure_in_static_checks_is_an_error_not_a_pass(flow):
+    patch = frontend_flow(flow)
+    flow.plan = static_plan(format_rc=2)
+    r = flow.run(patch)
+    assert r["status"] == "error" and r["reason"] == "static_infrastructure"
+
+
+def test_flow_backend_patch_runs_no_static_checks(flow):
+    flow.plan = [{"junit": junit(2)}, {"junit": junit(3)}, {"junit": junit(1)}, {"junit": junit(1)}]
+    r = flow.run(flow.patch_adding())
+    assert r["status"] == "passed" and r["stacks"]["backend"]["static_checks"] is None
+    assert not any("--typecheck" in args for _, args in flow.calls)
+
+
 def test_patch_that_repairs_an_outdated_test_passes():
     base = {"exit_code": 1, "tests": 10, "failures": 1}
     after = {"exit_code": 0, "tests": 10, "failures": 0}

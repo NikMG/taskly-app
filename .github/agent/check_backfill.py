@@ -5,6 +5,7 @@ The list of gaps comes from the coverage report of a run the agent did not contr
 and is compared with the decisions in its report. A gap passes only if the report
 states why it stays untested, so a run cannot finish by ignoring part of the stack.
 Whether a stated reason is any good remains for the human reviewer: all are printed.
+The agent log must also show that the run loaded the skills this mode depends on.
 
 Exit: 0 every gap is accounted for, 1 some are not, 2 unreadable input.
 """
@@ -15,6 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from render_report import audit_agent_log
 from verify_patch import _load_json, _stack_path
 
 
@@ -60,15 +62,25 @@ def find_gaps(results: Path, stack: str) -> dict[str, str]:
     return _frontend_gaps(_load_json(results / "coverage" / "coverage-summary.json"))
 
 
-def decisions(report: Any, stack: str) -> dict[str, tuple[bool, str]]:
+def decisions(report: Any, stack: str) -> dict[str, str]:
     entries = report.get("files_analyzed") if isinstance(report, dict) else None
     if not isinstance(entries, list):
         raise ValueError("report has no files_analyzed")
     return {
-        entry["path"]: (entry.get("needs_tests") is not False, str(entry.get("reason") or "").strip())
+        entry["path"]: str(entry.get("left_untested") or "").strip()
         for entry in entries
         if isinstance(entry, dict) and isinstance(entry.get("path"), str) and entry.get("stack") == stack
     }
+
+
+def missing_skills(log: str, stack: str, report: Any) -> list[str]:
+    audit = audit_agent_log(log)
+    if audit is None:
+        raise ValueError("agent log is unreadable")
+    required = ["run-sandboxed-tests", "find-coverage-gaps", "report-test-results"]
+    if report.get("tests_written"):
+        required.append(f"write-{stack}-tests")
+    return [skill for skill in required if skill not in audit["skills"]]
 
 
 def _printable(text: str) -> str:
@@ -76,15 +88,15 @@ def _printable(text: str) -> str:
     return "".join(ch if ch.isprintable() else " " for ch in text)
 
 
-def check(gaps: dict[str, str], decided: dict[str, tuple[bool, str]]) -> tuple[list[str], list[str]]:
+def check(gaps: dict[str, str], decided: dict[str, str]) -> tuple[list[str], list[str]]:
     explained, unresolved = [], []
     for path, gap in sorted(gaps.items()):
-        needs_tests, reason = decided.get(path, (True, ""))
-        if needs_tests or not reason:
-            state = "still needs tests" if path in decided else "not in the report"
-            unresolved.append(f"{_printable(path)}: {gap}; {state}")
-        else:
+        reason = decided.get(path, "")
+        if reason:
             explained.append(f"{_printable(path)}: {gap}; {_printable(reason)}")
+        else:
+            state = "no reason given" if path in decided else "not in the report"
+            unresolved.append(f"{_printable(path)}: {gap}; {state}")
     return explained, unresolved
 
 
@@ -93,10 +105,13 @@ def main() -> int:
     ap.add_argument("stack", choices=("backend", "frontend"))
     ap.add_argument("--results", required=True, help="results directory of the independent run")
     ap.add_argument("--report", required=True, help="report.json of the agent")
+    ap.add_argument("--agent-log", required=True, help="stream-json log of the agent")
     args = ap.parse_args()
     try:
         gaps = find_gaps(Path(args.results), args.stack)
-        decided = decisions(_load_json(Path(args.report)), args.stack)
+        report = _load_json(Path(args.report))
+        decided = decisions(report, args.stack)
+        skipped = missing_skills(args.agent_log, args.stack, report)
     except (ValueError, TypeError) as exc:
         print(f"check_backfill.py: {exc}", file=sys.stderr)
         return 2
@@ -106,7 +121,9 @@ def main() -> int:
         if rows:
             print(f"{title}:")
             print("\n".join(f"  {row}" for row in rows))
-    return 1 if unresolved else 0
+    if skipped:
+        print(f"Skills the run did not load: {', '.join(skipped)}")
+    return 1 if unresolved or skipped else 0
 
 
 if __name__ == "__main__":

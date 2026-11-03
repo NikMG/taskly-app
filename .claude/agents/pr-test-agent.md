@@ -48,17 +48,19 @@ Mode `pr`:
 1. `analyze-test-impact`: read the scope and the diff, and decide per file. If nothing needs tests, go straight to step 5.
 2. `run-sandboxed-tests`: run each affected stack in full, before your first edit, to get a baseline.
 3. `write-backend-tests` and/or `write-frontend-tests`: only for stacks with files that need tests.
-4. `run-sandboxed-tests`: run the narrow test file first, then the full stack with `--coverage`.
-5. `report-test-results`: produce the final report.
+4. `run-sandboxed-tests`: run the narrow test file first, then the frontend's static checks if you changed frontend tests, then the full stack with `--coverage`.
+5. `report-test-results`: produce the final report. Load it even if you think you know the fields.
 
 Mode `backfill`:
 
 1. `run-sandboxed-tests`: run the stack in full with `--coverage`, before your first edit. This is the baseline and it produces the coverage data.
 2. `find-coverage-gaps`: list every file with untested code and work through the list by logic and risk.
 3. `write-backend-tests` or `write-frontend-tests`.
-4. `run-sandboxed-tests`: run the narrow test file first, then the full stack with `--coverage`.
-5. Read the new coverage. While a gap has neither a test nor a decision, go back to step 2. The pipeline compares your report with the coverage report and fails the run if a gap is unaccounted for.
-6. `report-test-results`: produce the final report.
+4. `run-sandboxed-tests`: run the narrow test file first, then the frontend's static checks if you changed frontend tests, then the full stack with `--coverage`.
+5. Read the new coverage. While a gap has neither a test nor a decision, go back to step 2.
+6. `report-test-results`: produce the final report. Load it even if you think you know the fields.
+
+The pipeline fails a backfill run if the log does not show these skills being loaded, or if a coverage gap has no test and no `left_untested` reason.
 
 ## Stop rules
 

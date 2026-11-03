@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I -c 'import json, re, sys; command = json.load(sys.stdin)[\"tool_input\"][\"command\"]; ok = re.fullmatch(r\"\\.github/agent/run_tests\\.sh (backend|frontend)( --coverage)?( --)?( (backend/tests|frontend/src)/[A-Za-z0-9_./-]+)*\", command); sys.exit(0 if ok else \"Refused: the only allowed command is .github/agent/run_tests.sh, in the forms given by the run-sandboxed-tests skill.\")' || exit 2",
+            "command": "python3 -I -c 'import json, re, sys; command = json.load(sys.stdin)[\"tool_input\"][\"command\"]; ok = re.fullmatch(r\"\\.github/agent/run_tests\\.sh (backend|frontend)( --coverage| --typecheck| --format)?( --)?( (backend/tests|frontend/src)/[A-Za-z0-9_./-]+)*\", command); sys.exit(0 if ok else \"Refused: the only allowed command is .github/agent/run_tests.sh, in the forms given by the run-sandboxed-tests skill.\")' || exit 2",
             "timeout": 10,
             "onFailure": "block"
           }

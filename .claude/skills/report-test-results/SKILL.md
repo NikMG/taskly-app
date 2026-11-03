@@ -37,13 +37,14 @@ Written tests plus a suspected bug in other code is still `tests_created`; the b
 - `path`: repository relative. `stack`: `backend` or `frontend`.
 - `needs_tests`: your decision.
 - `reason` (at most 300 characters): why, specific to the file. Not "no logic" but "only renames the prop passed to TodoItem; TodoList.test.tsx covers it".
+- `left_untested`: `""` in pr mode. In backfill mode, see below.
 
 In backfill mode, base this on the final full run. Every file that still has a missed line or branch needs an entry, and the pipeline checks this against the coverage report:
 
-- `needs_tests: false`: what remains is deliberately untested. `reason` names that code and why, even if you tested the rest of the file.
-- `needs_tests: true`: tests are still needed, and this run did not finish them. The run is then reported as incomplete.
+- `left_untested` (at most 300 characters): what remains and why it is not worth a test, following the rules in `find-coverage-gaps`. Set it only when that is your decision.
+- Use `""` if the file still has work you did not finish. The run is then reported as incomplete.
 
-Files you brought to full coverage may be listed too.
+`needs_tests` and `reason` keep their meaning: the decision about the file as a whole. Files you brought to full coverage may be listed too.
 
 `tests_written` (at most 50): one entry per test file you created or changed that is in the tree at the end.
 

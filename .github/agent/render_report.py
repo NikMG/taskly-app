@@ -219,6 +219,14 @@ def section_verify(verify: Any, status: str) -> list[str]:
                 f"| Flaky re-run | {flaky} |",
                 f"| Coverage | {_cov(d.get('coverage'))} |",
                 f"| Diff coverage | {_cov(d.get('diff_coverage'))} |"]
+        static = d.get("static_checks")
+        if isinstance(static, dict):
+            word = lambda value: "passed" if value is True else "failed" if value is False else "n/a"
+            types = word(static.get("typecheck"))
+            if static.get("typecheck_before") is False:
+                types += " (already failing without the patch)"
+            out.append(f"| Formatting (patch files) | {word(static.get('format'))} |")
+            out.append(f"| Types | {types} |")
     return out
 
 

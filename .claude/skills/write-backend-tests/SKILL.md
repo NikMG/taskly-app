@@ -9,7 +9,7 @@ The sandbox has no Postgres, no network and no `.env`. Every test must pass ther
 
 ## Conventions
 
-- Mirror `app/` under `tests/`: `app/core/config.py` becomes `tests/core/test_config.py`. New test directories need an empty `__init__.py`, as all existing ones have. Import from `app.…`.
+- Mirror `app/` under `tests/`: `app/core/config.py` becomes `tests/core/test_config.py`. One test file per source file: if it exists, add to it. New test directories need an empty `__init__.py`, as all existing ones have. Import from `app.…`.
 - Use plain functions with descriptive names that state the behaviour, such as `test_invalid_create_never_calls_repository`. No test classes.
 - Use `pytest.mark.parametrize` for input variations instead of copying tests.
 - Assert on outcomes: status codes, response JSON, returned objects. Assert mock calls where the call itself is the behaviour, as in `repository_mock.create.assert_called_once_with(...)` or `.assert_not_called()` on a rejected request.

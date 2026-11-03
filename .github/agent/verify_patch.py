@@ -8,7 +8,7 @@ and a missing or malformed report never counts as a pass. Test output is never e
 because the runner would parse workflow commands out of the job log.
 
 verify.json: status (passed|failed|skipped|error), reason, preexisting_failures,
-patch_sha256, stacks.<stack>.{baseline,with_patch,flaky_rerun,coverage,diff_coverage}.
+patch_sha256, stacks.<stack>.{baseline,with_patch,flaky_rerun,coverage,diff_coverage,static_checks}.
 Exit: 0 when verify.json was written, 1 on an internal error (it is still written).
 """
 from __future__ import annotations
@@ -41,6 +41,8 @@ RERUN_RES = {
     "backend": re.compile(r"backend/tests/(?:[A-Za-z0-9_.-]+/)*test_[A-Za-z0-9_.-]*\.py"),
     "frontend": re.compile(r"frontend/src/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.test\.tsx?"),
 }
+# Files prettier checks: everything the patch may touch in the frontend.
+FORMAT_RE = re.compile(r"frontend/src/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.tsx?")
 HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 Runner = Callable[[str, list[str], Path], int]
@@ -259,6 +261,33 @@ def rerun_paths(stack: str, patch_files: list[str]) -> list[str]:
     return [p for p in patch_files if RERUN_RES[stack].fullmatch(p) and ".." not in p]
 
 
+def judge_static(runner: Runner, workspace: Path, patch_files: list[str],
+                 types_ok_before: bool) -> tuple[str, str | None, dict[str, Any]]:
+    """Run CI's frontend checks on the patched tree. Returns (status, reason, details).
+
+    Formatting is judged on the patch's own files. Types are judged on the whole project,
+    so a type error that was already in the pull request does not count against the patch.
+    """
+    files = [p for p in patch_files
+             if p.startswith("frontend/") and FORMAT_RE.fullmatch(p) and ".." not in p
+             and (workspace / p).is_file()]
+    details: dict[str, Any] = {"format": None, "typecheck": None, "typecheck_before": types_ok_before}
+    if files:
+        rc = runner("frontend", ["--format", "--", *files], Path("frontend-format.log"))
+        if rc in INFRA_EXITS:
+            return "error", "static_infrastructure", details
+        details["format"] = rc == 0
+    rc = runner("frontend", ["--typecheck"], Path("frontend-typecheck.log"))
+    if rc in INFRA_EXITS:
+        return "error", "static_infrastructure", details
+    details["typecheck"] = rc == 0
+    if details["format"] is False:
+        return "failed", "format_failed", details
+    if rc != 0 and types_ok_before:
+        return "failed", "typecheck_failed", details
+    return "passed", None, details
+
+
 def patch_stacks(patch_files: list[str]) -> set[str]:
     return {p.split("/", 1)[0] for p in patch_files}
 
@@ -318,7 +347,8 @@ def _empty_stack() -> dict[str, Any]:
     return {"baseline": None, "with_patch": None,
             "flaky_rerun": {"runs": 0, "all_passed": None},
             "coverage": {"before": None, "after": None},
-            "diff_coverage": {"before": None, "after": None}}
+            "diff_coverage": {"before": None, "after": None},
+            "static_checks": None}
 
 
 def _result(status: str, reason: str | None, stacks: dict[str, Any], digest: str | None,
@@ -368,6 +398,12 @@ def verify(scope: dict[str, Any], pr_diff: str, patch: Path, workspace: Path, ou
     if patch_stacks(patch_files) - set(stacks):
         # No dependencies were prepared for that stack, so it could not be verified.
         return _result("failed", "patch_outside_scope", report, digest, preexisting)
+    types_ok_before = True
+    if "frontend" in patch_stacks(patch_files):
+        rc = runner("frontend", ["--typecheck"], Path("frontend-typecheck-baseline.log"))
+        if rc in INFRA_EXITS:
+            return _result("error", "baseline_infrastructure", report, digest, preexisting)
+        types_ok_before = rc == 0
     if not apply_patch(workspace, patch):
         return _result("failed", "apply_failed", report, digest, preexisting)
 
@@ -391,6 +427,9 @@ def verify(scope: dict[str, Any], pr_diff: str, patch: Path, workspace: Path, ou
             stack_report["flaky_rerun"] = {"runs": runs, "all_passed": passes == runs if runs else None}
             if stack_status == "passed" and passes != runs:
                 stack_status, stack_reason = "failed", "flaky"
+        if stack_status == "passed" and stack == "frontend" and "frontend" in patch_stacks(patch_files):
+            stack_status, stack_reason, stack_report["static_checks"] = judge_static(
+                runner, workspace, patch_files, types_ok_before)
         if stack_status == "error" or (stack_status == "failed" and status == "passed"):
             status, reason = stack_status, stack_reason
     return _result(status, reason, report, digest, preexisting)

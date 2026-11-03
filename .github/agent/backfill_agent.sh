@@ -77,7 +77,7 @@ tail -n 25 "$tmp/verify.log"
 echo
 set +e
 "$AGENT_PYTHON" "$agent_dir/check_backfill.py" "$stack" \
-  --results "$tmp/verify/$stack/results" --report "$out/report.json"
+  --results "$tmp/verify/$stack/results" --report "$out/report.json" --agent-log "$out/agent.log"
 gaps_rc=$?
 set -e
 echo

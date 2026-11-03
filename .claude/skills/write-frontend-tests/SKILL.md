@@ -10,10 +10,10 @@ Before writing, read the nearest existing test and match it. Good references: `s
 ## Conventions
 
 - Import explicitly; there are no globals: `import { beforeEach, expect, it, vi } from 'vitest'`.
-- Colocate as `X.test.tsx` beside `X.tsx`, and `x.test.ts` beside `x.ts`. Name tests with `it('…')` and a behaviour sentence, usually without `describe`.
+- Colocate as `X.test.tsx` beside `X.tsx`, and `x.test.ts` beside `x.ts`. One test file per source file: if `X.test.tsx` exists, add to it. Do not create a second file such as `XStates.test.tsx`. Name tests with `it('…')` and a behaviour sentence, usually without `describe`.
 - `src/test/setup.ts` already loads jest-dom matchers and runs `cleanup` after each test. Do not repeat that.
-- Style follows Prettier in `.prettierrc.json`: no semicolons, single quotes, two spaces, trailing commas, 80 columns. CI runs `format:check` over `src`, so match it by hand.
-- Tests are type-checked in CI with `tsc --noEmit`. Mock returns use the existing cast, as in `as unknown as ReturnType<typeof useTodosQuery>`.
+- Style follows Prettier in `.prettierrc.json`: no semicolons, single quotes, two spaces, trailing commas, 80 columns. Check it with `--format`, as `run-sandboxed-tests` describes. A patch that fails it is rejected.
+- Tests are type-checked with `tsc --noEmit`. Check it with `--typecheck`. A patch that adds a type error is rejected. Mock returns use the existing cast, as in `as unknown as ReturnType<typeof useTodosQuery>`.
 
 ## Rendering components
 
@@ -40,6 +40,10 @@ Never test `design-system/` components themselves; they are excluded from covera
 ## The patterns below show how, not what
 
 The sections below cover setups that are awkward to get right. They do not decide what to test: that was decided by `analyze-test-impact` in pr mode or `find-coverage-gaps` in backfill mode, and this skill does not widen it. A target of a kind not mentioned here is still tested, by reading it and its nearest existing test. Cover the target's branches.
+
+## Code that assembles the application
+
+Mocks in other tests hide whether the real pieces fit together, so test providers and similar composition with the real ones: do not mock the design system here. Render with a small child that reads what the code should supply, such as `useQueryClient()` or the styled-components theme, and assert it received that. Cover default parameters too.
 
 ## Queries and interaction
 

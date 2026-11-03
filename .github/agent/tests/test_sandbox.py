@@ -374,3 +374,27 @@ def test_stale_results_are_wiped_before_run(env_dirs):
     result = run(env_dirs, "backend", "backend/tests/test_probe_fail.py")
     assert result.returncode == 1
     assert not stale.exists()
+
+
+# ---------------------------------------------------------------- static checks
+
+def static(args, env):
+    return subprocess.run([str(REPO / ".github/agent/run_tests.sh"), "frontend", *args], env=env,
+                          capture_output=True, text=True, timeout=400, check=False)
+
+
+@pytest.mark.parametrize("args", [
+    ["--typecheck", "--coverage"],
+    ["--typecheck", "--", "frontend/src/App.tsx"],
+    ["--format"],
+    ["--format", "--", "frontend/package.json"],
+    ["--format", "--", "frontend/src/../../x.ts"],
+])
+def test_static_checks_reject_bad_usage(args):
+    assert static(args, os.environ.copy()).returncode == 2
+
+
+def test_static_checks_are_frontend_only():
+    result = subprocess.run([str(REPO / ".github/agent/run_tests.sh"), "backend", "--typecheck"],
+                            capture_output=True, text=True, timeout=30, check=False)
+    assert result.returncode == 2

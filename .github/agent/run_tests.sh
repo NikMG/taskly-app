@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Usage: run_tests.sh <backend|frontend> [--coverage] [--] [test paths...]
+#        run_tests.sh frontend --typecheck
+#        run_tests.sh frontend --format [--] <files...>
 # Every argument is untrusted. Exit: 0 pass, 1 tests failed, 124 timeout,
 # 2 bad usage or sandbox error.
 set -euo pipefail
@@ -17,12 +19,15 @@ case "$stack" in
 esac
 
 coverage=0
+static=
 paths=()
 while [ "$#" -gt 0 ]; do
   arg=$1
   shift
   if [ "$arg" = "--coverage" ]; then
     coverage=1
+  elif [ "$arg" = "--typecheck" ] || [ "$arg" = "--format" ]; then
+    static=${arg#--}
   elif [ "$arg" = "--" ]; then
     break
   else
@@ -33,6 +38,16 @@ while [ "$#" -gt 0 ]; do
     break
   fi
 done
+if [ -n "$static" ]; then
+  [ "$stack" = frontend ] || die "--$static is only for frontend"
+  [ "$coverage" = 0 ] || die "--$static cannot be combined with --coverage"
+  if [ "$static" = format ]; then
+    [ "$#" -gt 0 ] || die "--format needs files"
+    path_re='^frontend/src/[A-Za-z0-9_/.-]+\.tsx?$'
+  else
+    [ "$#" -eq 0 ] || die "--typecheck takes no paths"
+  fi
+fi
 for arg in "$@"; do
   case "$arg" in
     *..*) die "invalid test path" ;;
@@ -137,6 +152,53 @@ if [ "$kb" -gt "$1" ]; then
   find /out -mindepth 1 -delete || exit 125
 fi
 exit 0'
+
+# The same checks as CI. They mount no results dir, so the last test run's reports stay.
+if [ -n "$static" ]; then
+  read -r -d '' static_inner <<'INNER' || true
+mkdir -p /tmp/work && cd /tmp/work || exit 125
+tar -C /workspace --exclude=node_modules --exclude=coverage -cf - frontend | tar -xf - || exit 125
+cd frontend || exit 125
+mkdir node_modules
+for e in /deps/node_modules/* /deps/node_modules/.bin; do
+  ln -s "$e" "node_modules/$(basename "$e")"
+done
+export XDG_CACHE_HOME=/tmp/cache
+mode=$1
+shift
+if [ "$mode" = typecheck ]; then
+  timeout 300 node_modules/.bin/tsc --noEmit
+else
+  timeout 300 node_modules/.bin/prettier --check "$@"
+fi
+rc=$?
+[ "$rc" = 143 ] && rc=124
+# There is no way to reformat from here, so show exactly what has to change.
+if [ "$mode" = format ] && [ "$rc" = 1 ]; then
+  for f in "$@"; do
+    timeout 60 node_modules/.bin/prettier "$f" | diff -u "$f" -
+  done
+fi
+exit $rc
+INNER
+  static_log=$(mktemp)
+  trap 'rm -f "$static_log"' EXIT
+  set +e
+  docker run "${harden[@]}" \
+    -v "$workspace/$stack:/workspace/$stack:ro" -v "$deps_root/$stack:/deps:ro" -e CI=true \
+    "$image" sh -c "$static_inner" sh "$static" ${paths[@]+"${paths[@]}"} >"$static_log" 2>&1
+  rc=$?
+  set -e
+  rm -f "$out/$static.log"
+  cat "$static_log" > "$out/$static.log"
+  tail -n 200 "$static_log"
+  case "$rc" in
+    0) exit 0 ;;
+    124) exit 124 ;;
+    125|126|127) exit 2 ;;
+    *) exit 1 ;;
+  esac
+fi
 
 docker run "${harden[@]}" -v "$results:/out:rw" "$image" sh -c "$wipe" \
   || die "could not wipe results"
