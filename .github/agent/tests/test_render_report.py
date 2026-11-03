@@ -233,6 +233,12 @@ def test_skipped_comment(tmp_path):
     assert "Agent claims" not in out and len(out) < 500
 
 
+def test_skip_reason_is_not_in_a_code_span(tmp_path):
+    scope = {"run_agent": False, "skip_reason": "no_testable_changes", "skip_detail": "docs only"}
+    out = render_cli(tmp_path, scope=scope)
+    assert "Reason: no\\_testable\\_changes - docs only" in out and "`" not in out
+
+
 def test_skip_detail_sanitized(tmp_path):
     scope = {"run_agent": False, "skip_reason": "x", "skip_detail": "<script>@a http://e"}
     out = render_cli(tmp_path, scope=scope)

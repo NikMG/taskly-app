@@ -376,7 +376,8 @@ def render(scope: Any, report: Any, rstatus: str, patch_check: Any, pstatus: str
             lines += [f"**Outcome:** {outcome_text(outcome)}", ""]
         code = sanitize(scope.get("skip_reason"), 40) or "unknown"
         detail = sanitize(scope.get("skip_detail"), 300)
-        lines.append(f"**Skipped.** Reason: `{code}`" + (f" - {detail}" if detail else ""))
+        # No code span here: it would display the escaping backslashes literally.
+        lines.append(f"**Skipped.** Reason: {code}" + (f" - {detail}" if detail else ""))
     else:
         lines.append(f"**Outcome:** {outcome_text(outcome)}")
         if bot_url:
