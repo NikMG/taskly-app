@@ -24,10 +24,19 @@ ZWSP = "&#8203;"
 SCHEMA_PATH = Path(__file__).with_name("report.schema.json")
 RUN_URL_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/actions/runs/\d+(/.*)?", re.ASCII)
 RUN_URL_SAFE_RE = re.compile(r"[A-Za-z0-9/_.\-?=&%#]*", re.ASCII)
+BOT_PR_URL_RE = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+", re.ASCII)
 SHA_RE = re.compile(r"[0-9a-fA-F]{40}", re.ASCII)
 _DROP_CATEGORIES = {"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"}
 _URL_SCHEME_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*):(?=/)")
 _MD_ESCAPE_RE = re.compile(r"([\\`*_~\[\]()!|])")
+OUTCOME_TEXT = {
+    "tests_proposed": "Tests proposed. Verified tests are in a separate pull request for you to review and merge.",
+    "no_tests_needed": "No tests needed. The agent proposed no changes for this pull request.",
+    "skipped": "Skipped. This pull request is not eligible for a test agent run.",
+    "needs_human": "Needs human review. The proposed tests were rejected or did not pass verification, so nothing was published.",
+    "stale": "Stale. The pull request changed while this run was in progress, so nothing was published.",
+    "pipeline_error": "Pipeline error. The run did not finish cleanly. See the workflow run for details.",
+}
 
 
 # ---------------------------------------------------------------- sanitizing
@@ -69,6 +78,10 @@ def safe_run_url(url: str | None) -> str | None:
         return None
     tail = url[len("https://github.com/"):]
     return url if RUN_URL_SAFE_RE.fullmatch(tail) else None
+
+
+def safe_bot_pr_url(url: str | None) -> str | None:
+    return url if isinstance(url, str) and BOT_PR_URL_RE.fullmatch(url) else None
 
 
 def safe_sha(sha: str | None) -> str | None:
@@ -329,6 +342,12 @@ def section_claims(report: Any, rstatus: str) -> list[str]:
     return out
 
 
+def outcome_text(outcome: str | None) -> str:
+    if outcome in OUTCOME_TEXT:
+        return OUTCOME_TEXT[outcome]
+    return sanitize(outcome, 100) if outcome else "not provided"
+
+
 def truncate(text: str) -> str:
     if len(text) <= MAX_COMMENT:
         return text
@@ -341,19 +360,27 @@ def truncate(text: str) -> str:
 
 def render(scope: Any, report: Any, rstatus: str, patch_check: Any, pstatus: str,
            verify: Any, vstatus: str, audit: dict[str, Any] | None,
-           run_url: str | None, pushed_sha: str | None, outcome: str | None) -> str:
+           run_url: str | None, pushed_sha: str | None, outcome: str | None,
+           bot_pr_url: str | None = None) -> str:
     lines = [MARKER, "## Test agent report", ""]
     url = safe_run_url(run_url)
     sha = safe_sha(pushed_sha)
+    bot_url = safe_bot_pr_url(bot_pr_url)
 
     if not isinstance(scope, dict):
+        if outcome:
+            lines += [f"**Outcome:** {outcome_text(outcome)}", ""]
         lines.append("Scope information is missing or corrupt, so no further details are available.")
     elif scope.get("run_agent") is not True:
+        if outcome and outcome != "skipped":
+            lines += [f"**Outcome:** {outcome_text(outcome)}", ""]
         code = sanitize(scope.get("skip_reason"), 40) or "unknown"
         detail = sanitize(scope.get("skip_detail"), 300)
         lines.append(f"**Skipped.** Reason: `{code}`" + (f" - {detail}" if detail else ""))
     else:
-        lines.append(f"**Outcome:** {sanitize(outcome, 100) if outcome else 'not provided'}")
+        lines.append(f"**Outcome:** {outcome_text(outcome)}")
+        if bot_url:
+            lines += ["", f"[Proposed tests pull request]({bot_url})"]
         if sha:
             lines.append("")
             lines.append(f"Pushed commit: `{sha}`")
@@ -370,7 +397,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--scope", required=True)
     ap.add_argument("--output", required=True)
-    for opt in ("report", "patch-check", "verify", "agent-log", "run-url", "pushed-sha", "outcome"):
+    for opt in ("report", "patch-check", "verify", "agent-log", "run-url", "pushed-sha", "outcome",
+                "bot-pr-url"):
         ap.add_argument(f"--{opt}")
     args = ap.parse_args(argv)
 
@@ -384,7 +412,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # noqa: BLE001
             audit = None
         text = render(scope, report, rs, pc, ps, ver, vs, audit,
-                      args.run_url, args.pushed_sha, args.outcome)
+                      args.run_url, args.pushed_sha, args.outcome, args.bot_pr_url)
     except Exception:  # noqa: BLE001 - always produce a comment
         text = f"{MARKER}\n## Test agent report\n\nThe report could not be rendered due to an internal error.\n"
     try:

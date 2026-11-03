@@ -53,7 +53,7 @@ def render_cli(tmp_path, scope=SCOPE_RUN, **files):
     args = ["--scope", w(tmp_path, "scope.json", scope), "--output", str(tmp_path / "out.md")]
     for k, v in files.items():
         key = k.replace("_", "-")
-        args += [f"--{key}", v if k in ("run_url", "pushed_sha", "outcome") or isinstance(v, str) and not v.startswith("{") and k != "x" else v]
+        args += [f"--{key}", v if k in ("run_url", "pushed_sha", "outcome", "bot_pr_url") or isinstance(v, str) and not v.startswith("{") and k != "x" else v]
     assert rr.main(args) == 0
     return (tmp_path / "out.md").read_text()
 
@@ -141,6 +141,62 @@ def test_bad_run_url_dropped_in_comment(tmp_path):
 def test_good_run_url_and_sha(tmp_path):
     out = render_cli(tmp_path, run_url=RUN_URL, pushed_sha=SHA)
     assert f"[Workflow run]({RUN_URL})" in out and f"`{SHA}`" in out
+
+
+BOT_URL = "https://github.com/o/r/pull/45"
+
+
+@pytest.mark.parametrize("url,ok", [
+    (BOT_URL, True), (BOT_URL + "/files", False), (BOT_URL + "?x=1", False), (BOT_URL + "\n", False),
+    (BOT_URL + ")[x](http://evil)", False), ("http://github.com/o/r/pull/45", False),
+    ("https://evil.com/o/r/pull/45", False), ("https://github.com.evil.com/o/r/pull/45", False),
+    ("https://github.com/o/r/pull/abc", False), ("https://github.com/o/r/issues/45", False),
+    ("", False), (None, False), (45, False),
+])
+def test_bot_pr_url(url, ok):
+    assert (rr.safe_bot_pr_url(url) is not None) is ok
+
+
+def test_bot_pr_url_rendered_only_when_valid(tmp_path):
+    out = render_cli(tmp_path, outcome="tests_proposed", bot_pr_url=BOT_URL)
+    assert f"[Proposed tests pull request]({BOT_URL})" in out
+    out = render_cli(tmp_path, outcome="tests_proposed", bot_pr_url="https://evil.com/o/r/pull/1")
+    assert "evil.com" not in out and "Proposed tests pull request" not in out
+
+
+@pytest.mark.parametrize("code,word", [
+    ("tests_proposed", "Tests proposed"), ("no_tests_needed", "No tests needed"),
+    ("skipped", "Skipped"), ("needs_human", "Needs human review"), ("stale", "Stale"),
+    ("pipeline_error", "Pipeline error"),
+])
+def test_outcome_wording(tmp_path, code, word):
+    assert f"**Outcome:** {word}" in render_cli(tmp_path, outcome=code)
+    assert code in rr.OUTCOME_TEXT and "@" not in rr.OUTCOME_TEXT[code] and "<" not in rr.OUTCOME_TEXT[code]
+
+
+def test_unknown_outcome_is_still_sanitized(tmp_path):
+    assert "<b>" not in render_cli(tmp_path, outcome="<b>tests_proposed</b>")
+
+
+def test_pipeline_error_rendered_when_scope_missing(tmp_path):
+    out_path = tmp_path / "o.md"
+    assert rr.main(["--scope", str(tmp_path / "missing"), "--output", str(out_path),
+                    "--outcome", "pipeline_error", "--run-url", RUN_URL]) == 0
+    out = out_path.read_text()
+    assert out.startswith(MARKER) and "Pipeline error" in out and "Scope information" in out
+    assert f"[Workflow run]({RUN_URL})" in out
+
+
+def test_scope_error_shows_pipeline_error_and_skip_reason(tmp_path):
+    scope = {"run_agent": False, "skip_reason": "scope_error", "skip_detail": "bad"}
+    out = render_cli(tmp_path, scope=scope, outcome="pipeline_error")
+    assert "Pipeline error" in out and "scope" in out
+
+
+def test_skipped_outcome_does_not_repeat_itself(tmp_path):
+    scope = {"run_agent": False, "skip_reason": "draft", "skip_detail": "pull request is a draft"}
+    out = render_cli(tmp_path, scope=scope, outcome="skipped")
+    assert out.count("Skipped") == 1 and "Outcome" not in out
 
 
 # ---------------------------------------------------------------- rendering

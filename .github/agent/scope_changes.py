@@ -15,6 +15,12 @@ from typing import Any
 
 OPT_OUT_LABEL = "skip-test-agent"
 AGENT_COMMIT_LINE = "Test-Agent-Commit: true"
+AGENT_BRANCH_PREFIX = "test-agent/"
+# A false match only skips a run, so these can stay loose about the surrounding text.
+AGENT_MERGE_RES = [re.compile(p) for p in (
+    r"Merge pull request #\d+ from [^\s/]+/test-agent/pr-\d+",
+    r"Merge (?:remote-tracking )?branch '(?:origin/)?test-agent/pr-\d+'(?: of \S+)?(?: into \S+)?",
+)]
 
 SKIP_DETAILS = {
     "fork": "pull request comes from a fork",
@@ -22,6 +28,7 @@ SKIP_DETAILS = {
     "bot_author": "pull request author is a bot",
     "opt_out_label": f"label '{OPT_OUT_LABEL}' is set",
     "control_plane_changed": "PR modifies agent/CI control-plane files",
+    "agent_branch": "pull request comes from a test agent branch",
     "agent_commit": "head commit was created by the test agent",
     "no_testable_changes": "no testable source files changed",
     "diff_too_large": "diff exceeds size limits",
@@ -152,18 +159,24 @@ def read_event(path: str) -> dict[str, Any]:
     base = _get(pr, "base", "repo", "full_name")
     head_repo = _get(pr, "head", "repo")  # null when the fork was deleted
     head = _get(head_repo, "full_name") if head_repo is not None else None
+    head_ref = _get(pr, "head", "ref")
     labels = _get(pr, "labels")
     if not isinstance(labels, list):
         raise ScopeError("labels is not a list")
     names = [_get(lb, "name") for lb in labels]
     login = _get(pr, "user", "login")
     utype = _get(pr, "user", "type")
-    if not isinstance(base, str) or not all(isinstance(x, str) for x in names + [login, utype]):
+    if not isinstance(base, str) or not all(isinstance(x, str) for x in names + [login, utype, head_ref]):
         raise ScopeError("event fields have wrong types")
     if head is not None and not isinstance(head, str):
         raise ScopeError("head repo name has wrong type")
     return {"draft": draft, "head": head, "base": base, "labels": names,
-            "login": login, "type": utype}
+            "login": login, "type": utype, "head_ref": head_ref}
+
+
+def is_agent_commit(commit_msg: str) -> bool:
+    lines = [ln.rstrip("\r") for ln in commit_msg.split("\n")]
+    return AGENT_COMMIT_LINE in lines or any(r.fullmatch(lines[0]) for r in AGENT_MERGE_RES)
 
 
 def decide(ev: dict[str, Any], entries: list[dict[str, Any]], lines: int,
@@ -188,14 +201,14 @@ def decide(ev: dict[str, Any], entries: list[dict[str, Any]], lines: int,
             result["source_files"][kind].append(e["new"])
     result["stacks"] = [s for s in ("backend", "frontend") if result["source_files"][s]]
 
-    msg_lines = [ln.rstrip("\r") for ln in commit_msg.split("\n")]
     gates = [
         ("fork", ev["head"] is None or ev["head"] != ev["base"]),
         ("draft", ev["draft"]),
         ("bot_author", ev["type"] == "Bot" or ev["login"].endswith("[bot]")),
         ("opt_out_label", OPT_OUT_LABEL in ev["labels"]),
         ("control_plane_changed", any(is_control_plane(p) for p in all_paths)),
-        ("agent_commit", AGENT_COMMIT_LINE in msg_lines),
+        ("agent_branch", ev["head_ref"].startswith(AGENT_BRANCH_PREFIX)),
+        ("agent_commit", is_agent_commit(commit_msg)),
         ("no_testable_changes", not result["stacks"]),
         ("diff_too_large", len(entries) > max_files or lines > max_lines),
     ]

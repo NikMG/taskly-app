@@ -9,7 +9,7 @@ import scope_changes as sc
 def event(**over):
     pr = {
         "draft": False,
-        "head": {"repo": {"full_name": "o/r"}},
+        "head": {"repo": {"full_name": "o/r"}, "ref": "feature"},
         "base": {"repo": {"full_name": "o/r"}},
         "labels": [],
         "user": {"login": "alice", "type": "User"},
@@ -109,13 +109,13 @@ def test_no_testable_changes(tmp_path):
 
 
 def test_fork(tmp_path):
-    ev = event(head={"repo": {"full_name": "evil/r"}})
+    ev = event(head={"repo": {"full_name": "evil/r"}, "ref": "feature"})
     code, r = run(tmp_path, ev, ns(BACKEND), NUM1)
     assert code == 0 and r["skip_reason"] == "fork"
 
 
 def test_deleted_fork_repo_is_fork(tmp_path):
-    code, r = run(tmp_path, event(head={"repo": None}), ns(BACKEND), NUM1)
+    code, r = run(tmp_path, event(head={"repo": None, "ref": "feature"}), ns(BACKEND), NUM1)
     assert r["skip_reason"] == "fork"
 
 
@@ -175,6 +175,55 @@ def test_agent_commit_requires_exact_line(tmp_path, msg):
     assert run(tmp_path, name_status=ns(BACKEND), ns_numstat=NUM1, msg=msg)[1]["run_agent"] is True
 
 
+def head_ref_event(ref):
+    return event(head={"repo": {"full_name": "o/r"}, "ref": ref})
+
+
+@pytest.mark.parametrize("ref", ["test-agent/pr-7", "test-agent/anything"])
+def test_agent_branch(tmp_path, ref):
+    code, r = run(tmp_path, head_ref_event(ref), ns(BACKEND), NUM1)
+    assert code == 0 and r["skip_reason"] == "agent_branch" and r["run_agent"] is False
+
+
+@pytest.mark.parametrize("ref", ["test-agent", "test-agents/x", "feature/test-agent/pr-1", "Test-Agent/pr-1"])
+def test_not_agent_branch(tmp_path, ref):
+    assert run(tmp_path, head_ref_event(ref), ns(BACKEND), NUM1)[1]["run_agent"] is True
+
+
+@pytest.mark.parametrize("head", [{"repo": {"full_name": "o/r"}},
+                                  {"repo": {"full_name": "o/r"}, "ref": 7}])
+def test_missing_or_bad_head_ref_is_error(tmp_path, head):
+    code, r = run(tmp_path, event(head=head), ns(BACKEND), NUM1)
+    assert code == 1 and r["skip_reason"] == "scope_error"
+
+
+@pytest.mark.parametrize("msg", [
+    "Merge pull request #12 from o/test-agent/pr-7",
+    "Merge pull request #12 from o/test-agent/pr-7\n\nTest agent: tests for #7\n",
+    "Merge pull request #12 from o/test-agent/pr-7\r\n",
+    "Merge branch 'test-agent/pr-7'",
+    "Merge branch 'test-agent/pr-7' into feature",
+    "Merge branch 'test-agent/pr-7' of https://github.com/o/r into feature",
+    "Merge remote-tracking branch 'origin/test-agent/pr-7'",
+    "Add tests (#12)\n\n* test: proposed\n\nTest-Agent-Commit: true\n",
+])
+def test_agent_merge_or_squash_counts_as_agent_commit(tmp_path, msg):
+    assert run(tmp_path, name_status=ns(BACKEND), ns_numstat=NUM1, msg=msg)[1]["skip_reason"] == "agent_commit"
+
+
+@pytest.mark.parametrize("msg", [
+    "Merge pull request #12 from o/feature",
+    "Merge pull request #12 from o/test-agent/other",
+    "Merge branch 'main' into test-agent/pr-7",
+    "Merge branch 'test-agent/pr-x'",
+    "see Merge branch 'test-agent/pr-7'",
+    "fix\n\nMerge branch 'test-agent/pr-7'",
+    "",
+])
+def test_other_merges_still_run(tmp_path, msg):
+    assert run(tmp_path, name_status=ns(BACKEND), ns_numstat=NUM1, msg=msg)[1]["run_agent"] is True
+
+
 def test_too_large_lines(tmp_path):
     n = numstat(("2000", "1", "backend/app/a.py"))
     code, r = run(tmp_path, name_status=ns(("M", "backend/app/a.py")), ns_numstat=n)
@@ -206,11 +255,11 @@ def test_numstat_rename_record_parsed(tmp_path):
 def test_precedence_order():
     # every gate true at once; peel them off from the top
     ev = {"draft": True, "head": "evil/r", "base": "o/r", "labels": ["skip-test-agent"],
-          "login": "x[bot]", "type": "Bot"}
+          "login": "x[bot]", "type": "Bot", "head_ref": "test-agent/pr-1"}
     entries = [{"status": "M", "old": ".github/x", "new": ".github/x"}]
     msg = "Test-Agent-Commit: true"
     order = ["fork", "draft", "bot_author", "opt_out_label", "control_plane_changed",
-             "agent_commit", "no_testable_changes", "diff_too_large"]
+             "agent_branch", "agent_commit", "no_testable_changes", "diff_too_large"]
     got = []
     assert sc.decide(ev, entries, 99999, msg, 50, 2000)["skip_reason"] == "fork"
     ev["head"] = "o/r"
@@ -222,6 +271,7 @@ def test_precedence_order():
         elif step == "bot_author": ev["type"], ev["login"] = "User", "x"
         elif step == "opt_out_label": ev["labels"] = []
         elif step == "control_plane_changed": entries = [{"status": "M", "old": "README.md", "new": "README.md"}]
+        elif step == "agent_branch": ev["head_ref"] = "feature"
         elif step == "agent_commit": msg = ""
         elif step == "no_testable_changes":
             entries = [{"status": "M", "old": "backend/app/a.py", "new": "backend/app/a.py"}]
