@@ -37,6 +37,10 @@ Add `beforeEach(() => vi.clearAllMocks())` whenever a test inspects those mock c
 
 Never test `design-system/` components themselves; they are excluded from coverage. Mock child components only for page-level composition, as `TodosPage.test.tsx` and `App.test.tsx` do.
 
+## The patterns below show how, not what
+
+The sections below cover setups that are awkward to get right. They do not decide what to test: that was decided by `analyze-test-impact` in pr mode or `find-coverage-gaps` in backfill mode, and this skill does not widen it. A target of a kind not mentioned here is still tested, by reading it and its nearest existing test. Cover the target's branches.
+
 ## Queries and interaction
 
 - Query by what a user perceives: `getByRole` with `name` first, then `getByLabelText`, then `getByText`. Use `getByTestId` only for the `alert` the mock provides. Use `within(...)` to scope.

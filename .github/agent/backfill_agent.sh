@@ -4,11 +4,12 @@
 # For a human, in their own terminal, with their own key: this spends real money.
 # The agent works on a fresh clone of HEAD, so it never sees .env, docs/ or uncommitted
 # files. The real tree is not touched: the result is a patch that a human reviews and
-# applies. The patch is then checked by check_patch.py and the stack is re-run, and
-# those results come from here rather than from what the agent says.
+# applies. The patch is then checked by check_patch.py, the stack is re-run, and
+# check_backfill.py compares the resulting coverage with the agent's decisions. Those
+# results come from here rather than from what the agent says.
 #
-# Exit: 0 patch ready, 1 agent, patch check or tests failed, 2 usage or setup error,
-# 3 no key.
+# Exit: 0 patch ready, 1 agent, patch check, tests or gap check failed, 2 usage or
+# setup error, 3 no key.
 set -euo pipefail
 
 die() { echo "backfill_agent.sh: $*" >&2; exit 2; }
@@ -59,7 +60,7 @@ system_python=$(command -v python3.12 || command -v python3) || die "python3 not
 export AGENT_PYTHON=$tmp/venv/bin/python
 export PATH=$tmp/venv/bin:$PATH
 
-agent_rc=0 patch_rc=0 tests_rc=0
+agent_rc=0 patch_rc=0 tests_rc=0 gaps_rc=0
 set +e
 echo "Running the agent. This usually takes several minutes..."
 AGENT_OUTPUT_DIR=$out "$agent_dir/run_agent.sh" backfill "$stack"
@@ -72,11 +73,17 @@ set -e
 
 tail -n 25 "$tmp/verify.log"
 echo
+set +e
+"$AGENT_PYTHON" "$agent_dir/check_backfill.py" "$stack" \
+  --results "$tmp/verify/$stack/results" --report "$out/report.json"
+gaps_rc=$?
+set -e
+echo
 echo "Patch:  $out/agent.patch"
 echo "Report: $out/report.json"
 echo "Tests:  $tmp/verify.log"
-echo "agent exit: $agent_rc, check_patch exit: $patch_rc, run_tests exit: $tests_rc"
-if [ "$agent_rc" != 0 ] || [ "$patch_rc" != 0 ] || [ "$tests_rc" != 0 ]; then
+echo "agent exit: $agent_rc, check_patch exit: $patch_rc, run_tests exit: $tests_rc, check_backfill exit: $gaps_rc"
+if [ "$agent_rc" != 0 ] || [ "$patch_rc" != 0 ] || [ "$tests_rc" != 0 ] || [ "$gaps_rc" != 0 ]; then
   echo "backfill: FAIL"
   exit 1
 fi

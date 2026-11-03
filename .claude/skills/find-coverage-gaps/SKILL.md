@@ -1,6 +1,6 @@
 ---
 name: find-coverage-gaps
-description: Use in backfill mode after a full run with --coverage. Reads the coverage reports and picks the untested behaviour most worth testing, ranked by logic and risk rather than by missing test files.
+description: Use in backfill mode after a full run with --coverage. Reads the coverage reports, lists every file with untested code, and works through them by logic and risk until each gap has a test or a stated reason.
 ---
 
 # Find coverage gaps
@@ -34,9 +34,15 @@ Do not stop at files with no test file. **A file with a test file can still be b
 
 Read the source at each missed line or branch and name the behaviour it represents before deciding anything. A line number is not a target.
 
+## The whole stack is in scope
+
+Start by listing every file in the report that has a missed line or branch. That list is the work. It does not depend on what any skill happens to describe: a file with no recipe in a writing skill is as much in scope as one with a recipe.
+
+Each behaviour on the list ends in one of two ways: a test, or a decision not to test it with a reason specific to that code. "Not reached" is not a decision.
+
 ## Rank
 
-Rank candidates in this order:
+Ranking sets the order of work, not what gets dropped. Work in this order:
 
 1. Error handling and recovery: rollback, cleanup in `finally`, translating failures into messages or status codes.
 2. Business rules and validation: patch field rules, conflict handling, filtering and sorting.
@@ -44,7 +50,7 @@ Rank candidates in this order:
 4. State logic: query cache updates, mutation success paths, timers.
 5. Conditional rendering with real logic: empty, error and busy states.
 
-Rank low: code with one path, wiring, presentational components with no conditions, and defensive branches you can reach only by mocking internals.
+Last: code with one path, wiring, presentational components with no conditions, and defensive branches you can reach only by mocking internals. These often end in a decision not to test, which you still record.
 
 ## Skip
 
@@ -53,12 +59,19 @@ Never target anything excluded from coverage, and never change those exclusions.
 - Backend (`backend/pyproject.toml`): `__init__.py`, `app/main.py`, `schemas.py`, `models.py`, `types.py`, `constants.py`. Validators called from schemas live in `validators.py` and are in scope. Test schema behaviour only through them.
 - Frontend (`frontend/vite.config.ts`): `main.tsx`, `src/test/**`, tests, `design-system/**`, `types.ts`, `*.types.ts`, `index.ts`, constants files, `features/todos/api/queryKeys.ts`, `lib/queryClient.ts`.
 
-## Do not chase 100%
+## When not to test
 
-Stop when the next candidate would need mock-only assertions, private internals or a test that cannot fail for a real reason. Say what you left and why in `limitations`, in one line.
+Leave a behaviour untested only if a test would touch private internals, or could not fail for a real reason. A percentage is not a reason to stop or to keep going, and neither 100% nor any other figure is the goal.
 
-Choose a batch you can finish and verify within your budget, about 5 to 10 files. Depth on the risky files beats a thin pass across all of them.
+A mock at the boundary of a system outside the unit, such as a database session or `fetch`, is not a reason to skip. What the code does with that boundary is often the behaviour: whether it saves, what it sends, what it does when told nothing was found. The test to avoid is one that only proves a mock returned what it was told to return.
 
-## Output
+## Finishing
 
-Keep a ranked list of file, behaviours and target test file, then use the stack's writing skill. Afterwards, compare the new full-run figures with the baseline. Report only figures you read from these reports.
+Keep a ranked list of file, behaviours and target test file, then use the stack's writing skill. After each full run, re-read the coverage and update the list. You are done when every missed line or branch has a test or a decision.
+
+Only two limits end the work early, and both go in `limitations` with the files left over:
+
+- The patch guard rejects more than 30 changed files or 1500 added lines. Keep clear of those limits and finish the highest-ranked work.
+- The run's budget is about to end. Stop writing and leave enough to run the full stack and report.
+
+Report only figures you read from these reports.

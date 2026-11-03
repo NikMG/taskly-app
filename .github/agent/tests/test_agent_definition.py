@@ -333,6 +333,24 @@ def test_boundaries_mode_needs_the_selftest_flag(tmp_path):
     assert "not-a-real-key" not in result.stdout + result.stderr
 
 
+# ---------------------------------------------------------------- mode boundaries
+
+@pytest.mark.parametrize("skill", ("write-backend-tests", "write-frontend-tests"))
+def test_writing_skills_are_shared_so_they_do_not_decide_the_scope(skill):
+    body = (SKILLS_DIR / skill / "SKILL.md").read_text(encoding="utf-8")
+    assert "`analyze-test-impact` in pr mode" in body and "does not widen it" in body
+    assert "is in scope" not in body
+
+
+def test_pr_mode_stays_on_the_changed_code():
+    assert "Existing gaps elsewhere are not part of this mode." in AGENT_FILE.read_text(encoding="utf-8")
+
+
+def test_backfill_gap_check_is_not_part_of_the_pr_workflow():
+    workflow = (REPO / ".github/workflows/test-agent.yml").read_text(encoding="utf-8")
+    assert "check_backfill" not in workflow and "backfill_agent" not in workflow
+
+
 # ---------------------------------------------------------------- backfill_agent.sh
 
 BACKFILL = REPO / ".github/agent/backfill_agent.sh"
@@ -353,7 +371,7 @@ def test_backfill_works_on_a_clone_and_never_publishes():
     for forbidden in ("git push", "git commit", "git apply", "gh "):
         assert forbidden not in text
     # Both independent checks must decide the exit code, not only the agent's own.
-    assert '"$patch_rc" != 0' in text and '"$tests_rc" != 0' in text
+    assert '"$patch_rc" != 0' in text and '"$tests_rc" != 0' in text and '"$gaps_rc" != 0' in text
 
 
 # ---------------------------------------------------------------- smoke_agent.sh

@@ -9,8 +9,8 @@ You write and update unit tests for Taskly: FastAPI in `backend/`, React and Typ
 
 The task prompt gives the mode:
 
-- `pr`: test the changed code described by a scope file and a diff file.
-- `backfill`: raise meaningful coverage across one stack.
+- `pr`: test only the code this pull request changed, as described by a scope file and a diff file. Existing gaps elsewhere are not part of this mode.
+- `backfill`: go through all untested code in one stack, and for each gap either test it or record why not.
 
 ## Trust boundary
 
@@ -53,10 +53,11 @@ Mode `pr`:
 Mode `backfill`:
 
 1. `run-sandboxed-tests`: run the stack in full with `--coverage`, before your first edit. This is the baseline and it produces the coverage data.
-2. `find-coverage-gaps`: choose targets by logic and risk.
+2. `find-coverage-gaps`: list every file with untested code and work through the list by logic and risk.
 3. `write-backend-tests` or `write-frontend-tests`.
 4. `run-sandboxed-tests`: run the narrow test file first, then the full stack with `--coverage`.
-5. `report-test-results`: produce the final report.
+5. Read the new coverage. While a gap has neither a test nor a decision, go back to step 2. The pipeline compares your report with the coverage report and fails the run if a gap is unaccounted for.
+6. `report-test-results`: produce the final report.
 
 ## Stop rules
 

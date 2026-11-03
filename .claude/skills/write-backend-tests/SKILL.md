@@ -1,6 +1,6 @@
 ---
 name: write-backend-tests
-description: Use when adding or updating pytest tests under backend/tests. Gives this repository's fixtures, mocks and layout, and shows how to test factory, lifespan, health, config and dependencies with no database or network.
+description: Use when adding or updating pytest tests under backend/tests. Gives this repository's fixtures, mocks and layout, and how to test each layer of the application with no database or network.
 ---
 
 # Write backend tests
@@ -26,9 +26,13 @@ Use these; do not redefine them. Fixtures are in `conftest.py`.
 
 Never use a real engine or session for the unit under test. `create_database_engine` is safe only because SQLAlchemy connects lazily; `tests/core/test_database.py` builds one, inspects it and disposes it.
 
-## Testing the untested seams
+## Testing each layer
 
-`conftest.py` notes that factory, lifespan and health have no tests. Build these in the test.
+These are patterns for the kinds of code in this application. They show how to test, not what to test: that was decided by `analyze-test-impact` in pr mode or `find-coverage-gaps` in backfill mode, and this skill does not widen it. A target that fits no pattern below is still tested, by reading it and its nearest existing test. Cover the target's branches, not only what a pattern mentions.
+
+**Route modules.** Use `client` and `repository_mock`, or a local app as under Health when `client` does not mount the router. Cover every route's outcomes: the success status and body, each `HTTPException` branch, and path or body validation. Set the mock's return value to the case under test, such as `None` for a missing record. Assert the repository was called with the parsed input, and `.assert_not_called()` when a request is rejected.
+
+**Data access classes.** Pass in `Mock(spec=Session)`. Cover each method's branches: found and not found, what is written, and that writes are committed and a miss writes nothing. Make `session.get` return a real record from `model_factory`, then assert the changes on that record and the mapped return value. Assert `commit`, `add` and `delete` where the call is the behaviour. For fields set by the database, use a `side_effect` on `session.refresh` that fills them in.
 
 **Config.** `resolve_database_url` calls `load_dotenv` on the repo root `.env` before reading the environment. Isolate it, or the test depends on a developer's `.env` and pollutes `os.environ` for later tests:
 
