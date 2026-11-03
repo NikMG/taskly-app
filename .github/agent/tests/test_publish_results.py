@@ -199,10 +199,43 @@ def test_sticky_comment_updates_only_our_own(tmp_path, hub):
     hub.comments = [{"id": 1, "user": {"login": "mallory"}, "body": rr.MARKER + " spoof"},
                     {"id": 2, "user": {"login": BOT}, "body": "other"},
                     {"id": 3, "user": {"login": BOT}, "body": rr.MARKER + "\nold"}]
-    root = artifacts(tmp_path, scope={"run_agent": False, "skip_reason": "draft"})
+    root = artifacts(tmp_path, scope={"run_agent": False, "skip_reason": "scope_error"})
     assert pr.publish(env_for(root, tmp_path)) == 0
     assert [c[1] for c in hub.named("PATCH", "/issues/comments/")] == ["repos/o/r/issues/comments/3"]
     assert not hub.named("POST", "/issues/7/comments")
+
+
+def test_skipped_run_keeps_the_earlier_report(tmp_path, hub):
+    hub.comments = [{"id": 3, "user": {"login": BOT}, "body": rr.MARKER + "\nreal results"}]
+    root = artifacts(tmp_path, scope={"run_agent": False, "skip_reason": "no_testable_changes"})
+    assert pr.publish(env_for(root, tmp_path)) == 0
+    assert not hub.named("PATCH", "/issues/comments/")
+    assert not hub.named("POST", "/issues/7/comments")
+
+
+@pytest.mark.parametrize("reason", ["bot_author", "agent_branch", "agent_commit"])
+def test_agents_own_activity_gets_no_comment_but_keeps_the_check(tmp_path, hub, reason):
+    hub.comments = []
+    root = artifacts(tmp_path, scope={"run_agent": False, "skip_reason": reason})
+    assert pr.publish(env_for(root, tmp_path)) == 0
+    assert not hub.named("POST", "/issues/7/comments")
+    assert hub.named("POST", "/check-runs")
+
+
+def test_workflow_downloads_report_artifacts_by_name():
+    # A pattern matching a single artifact unpacks it without its subdirectory, which made
+    # every skipped run report a pipeline error.
+    workflow = (pr.HERE.parent / "workflows" / "test-agent.yml").read_text()
+    assert "pattern:" not in workflow
+    for name in ("report-scope", "report-agent", "report-verify"):
+        assert f"name: {name}\n          path: ${{{{ runner.temp }}}}/artifacts/{name}\n" in workflow
+
+
+def test_skipped_run_comments_when_there_is_no_report_yet(tmp_path, hub):
+    hub.comments = []
+    root = artifacts(tmp_path, scope={"run_agent": False, "skip_reason": "no_testable_changes"})
+    assert pr.publish(env_for(root, tmp_path)) == 0
+    assert hub.named("POST", "/issues/7/comments")
 
 
 def test_spoofed_marker_gets_a_new_comment(tmp_path, hub):

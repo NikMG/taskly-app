@@ -35,6 +35,7 @@ CONCLUSIONS = {"tests_proposed": "success", "no_tests_needed": "success", "skipp
 # 1 agent failed and 124 timed out can still leave a complete patch; verify judges it.
 # 4 means a credential reached the outputs, so nothing from that run may be published.
 AGENT_UNUSABLE_EXITS = (2, 3, 4)
+SILENT_SKIPS = ("bot_author", "agent_branch", "agent_commit")
 
 
 class PublishError(Exception):
@@ -105,13 +106,14 @@ def gh_api(method: str, path: str, body: Any = None, paginate: bool = False) -> 
     return json.loads(proc.stdout) if proc.stdout.strip() else None
 
 
-def upsert_comment(repo: str, number: str, text: str) -> None:
+def upsert_comment(repo: str, number: str, text: str, overwrite: bool = True) -> None:
     # Anyone can write the marker; only the login proves the comment is ours.
     comments = gh_api("GET", f"repos/{repo}/issues/{number}/comments?per_page=100", paginate=True)
     for comment in comments:
         if comment.get("user", {}).get("login") == BOT_LOGIN \
                 and str(comment.get("body", "")).startswith(rr.MARKER):
-            gh_api("PATCH", f"repos/{repo}/issues/comments/{comment['id']}", {"body": text})
+            if overwrite:
+                gh_api("PATCH", f"repos/{repo}/issues/comments/{comment['id']}", {"body": text})
             return
     gh_api("POST", f"repos/{repo}/issues/{number}/comments", {"body": text})
 
@@ -288,8 +290,13 @@ def publish(env: dict[str, str]) -> int:
         text = render(artifacts, patch_check, run_url, outcome, sha=commit, bot_url=bot_url)
 
     append_summary(text)
-    actions = [lambda: upsert_comment(repo, number, text),
-               lambda: post_check(repo, head_sha, outcome, run_url)]
+    # A skipped run has no results, so it must not erase the report of an earlier run.
+    # The agent's own PRs and merges are not worth a comment at all.
+    scope = _load(artifacts / "report-scope" / "scope.json")
+    skip_reason = scope.get("skip_reason") if isinstance(scope, dict) else None
+    actions = [lambda: post_check(repo, head_sha, outcome, run_url)]
+    if not (outcome == "skipped" and skip_reason in SILENT_SKIPS):
+        actions.insert(0, lambda: upsert_comment(repo, number, text, overwrite=outcome != "skipped"))
     if bot_url and commit:
         actions.append(lambda: post_check(repo, commit, outcome, run_url))
     for action in actions:
