@@ -342,6 +342,17 @@ def test_writing_skills_are_shared_so_they_do_not_decide_the_scope(skill):
     assert "is in scope" not in body
 
 
+def test_updating_an_expectation_is_bounded_and_reported():
+    impact = (SKILLS_DIR / "analyze-test-impact" / "SKILL.md").read_text(encoding="utf-8")
+    assert "## Deliberate behaviour changes" in impact and "mode `pr` only" in impact
+    assert "never update one to make that failure disappear" in impact
+    report = (SKILLS_DIR / "report-test-results" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Expectation changed:" in report
+    # The guard against weakening tests stays in force for everything else.
+    agent = AGENT_FILE.read_text(encoding="utf-8")
+    assert "never remove an assertion to get a pass" in agent
+
+
 def test_pr_mode_stays_on_the_changed_code():
     assert "Existing gaps elsewhere are not part of this mode." in AGENT_FILE.read_text(encoding="utf-8")
 

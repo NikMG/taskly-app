@@ -22,7 +22,7 @@ All fields are required, so use `[]` for an empty list. Size limits are enforced
 | Value | Use when |
 | --- | --- |
 | `tests_created` | You added new test files or new tests, and the final full run of your tests passed |
-| `tests_updated` | You only changed existing tests, such as an import or mock path after a rename |
+| `tests_updated` | You only changed existing tests, such as an import or mock path after a rename, or an expectation outdated by this pull request |
 | `tests_created_and_updated` | Both of the above |
 | `no_tests_needed` | You analysed the change and correctly wrote nothing |
 | `needs_human` | A person must decide before useful tests can exist: the intended behaviour is unclear, or the only testable behaviour looks wrong. You wrote nothing, or nothing you could fully stand behind |
@@ -50,6 +50,8 @@ Files you brought to full coverage may be listed too.
 - `path`: the test file. `action`: `created` or `updated`.
 - `covers` (at most 20 items, each at most 200 characters): behaviours, not function names. "rolls back the session when the route raises".
 - `rationale` (at most 300 characters): why these tests are worth having, and what regression they catch.
+
+If you changed the expectation of an existing test, start that file's `rationale` with `Expectation changed:`, then give the test name, the old and new expected result, and the source line that made the change. A reviewer must be able to judge it from this text alone.
 
 Do not list tests you dropped.
 

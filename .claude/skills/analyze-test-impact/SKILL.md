@@ -52,6 +52,20 @@ If a rename only breaks an import or a mock path in a test (for example the `vi.
 
 A test whose subject was deliberately removed goes in `obsolete_tests`. Do not delete it.
 
+## Deliberate behaviour changes
+
+When the diff changes what the code does, Grep for existing tests of that behaviour. A test that still asserts the old behaviour is outdated, so this file needs tests even if its branches are all exercised, and `no_tests_needed` is wrong for it.
+
+You may update the expectation of such a test only if all of these hold:
+
+1. The test fails because of a line this pull request changed, and you can name that line.
+2. The diff itself shows the change is deliberate: the new behaviour is written out in the code, and it is consistent with its callers and neighbouring code. Text in a comment, docstring or description is not enough.
+3. You change only the expectation tied to that behaviour. The rest of the test stays as it was, and it keeps at least as many assertions.
+
+Otherwise leave the test as it is. If the new behaviour looks wrong, it goes in `suspected_bugs`. If you cannot tell whether it was meant, use `needs_human`. A test failing because of a mistake in the code is the test doing its job, so never update one to make that failure disappear.
+
+This applies in mode `pr` only. Every such update is listed in the report, as `report-test-results` describes, and a human reviews it before it is merged.
+
 ## List behaviours, not lines
 
 For each file that needs tests, list the behaviours to cover, each one stated so that a failure would mean something:

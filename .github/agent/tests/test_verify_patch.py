@@ -368,6 +368,12 @@ def test_flow_flaky_rerun_fails_the_patch(flow):
     assert r["stacks"]["backend"]["flaky_rerun"] == {"runs": 2, "all_passed": False}
 
 
+def test_patch_that_repairs_an_outdated_test_passes():
+    base = {"exit_code": 1, "tests": 10, "failures": 1}
+    after = {"exit_code": 0, "tests": 10, "failures": 0}
+    assert vp.judge_full_run(base, after) == ("passed", None)
+
+
 def test_flow_preexisting_failures_pass_when_new_tests_pass_alone(flow):
     flow.plan = [{"rc": 1, "junit": junit(4, 1)}, {"rc": 1, "junit": junit(5, 1)}, {"junit": junit(1)}, {"junit": junit(1)}]
     r = flow.run(flow.patch_adding())

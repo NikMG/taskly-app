@@ -56,6 +56,8 @@ Read the failure, read the code under test, then decide:
 
 **Environment or sandbox.** Exit `2`, `124`, or errors such as a missing image or dependencies, or `run_tests.sh: …` messages. Also `ModuleNotFoundError` for a package the manifests do not provide. No network and no database are by design: if a test reaches for them, that is a bad test, so mock the boundary. For a real sandbox error, stop and report `blocked`. Do not retry more than once.
 
+**Outdated by this pull request.** In mode `pr`, a test fails in the baseline because the pull request deliberately changed the behaviour it asserts. Follow "Deliberate behaviour changes" in `analyze-test-impact`: update its expectation if every condition holds, and otherwise treat it as pre-existing or as a suspected bug.
+
 **Pre-existing.** A test fails in the baseline before your edits, or fails in a file you did not touch for a reason unrelated to your change. Do not fix it, skip it or edit it. Say so in `summary` and `limitations`, list the test names, and judge your own tests by running their files alone. If your change makes a previously passing test fail, it is not pre-existing: that is your bug.
 
 Test order or leaked state (it passes alone, fails in the full run) is a bad test: isolate it, usually with `monkeypatch`, `vi.unstubAllGlobals`, `vi.useRealTimers` or a fresh fixture.
