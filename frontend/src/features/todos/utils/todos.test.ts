@@ -51,6 +51,13 @@ describe('selectTodos', () => {
     ])
   })
 
+  it('keeps undated tasks last whatever the input order', () => {
+    const dated = { ...base, id: 1, due_date: '2026-11-01' }
+    const none = { ...base, id: 2 }
+    expect(selectTodos([none, dated], 'all', '', 'due')).toEqual([dated, none])
+    expect(selectTodos([dated, none], 'all', '', 'due')).toEqual([dated, none])
+  })
+
   it('breaks due-date ties by newest id', () => {
     const a = { ...base, id: 1, due_date: '2026-11-01' }
     const b = { ...base, id: 2, due_date: '2026-11-01' }

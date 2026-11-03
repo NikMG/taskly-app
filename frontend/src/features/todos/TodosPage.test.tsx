@@ -19,7 +19,12 @@ vi.mock('./hooks/useUpdateTodoMutation', () => ({
   useUpdateTodoMutation: vi.fn(),
 }))
 vi.mock('./components/TodosHeader', () => ({
-  TodosHeader: () => <h1>Tasks</h1>,
+  TodosHeader: ({ onCreate }: { onCreate: () => void }) => (
+    <>
+      <h1>Tasks</h1>
+      <button onClick={onCreate}>New task</button>
+    </>
+  ),
 }))
 vi.mock('./components/TodoFilters', () => ({ TodoFilters: () => null }))
 vi.mock('./components/TodoList', () => ({
@@ -148,6 +153,14 @@ it('opens the editor for a new or existing task and notifies on save', async () 
   await user.click(screen.getByRole('button', { name: 'Save editor' }))
   expect(notify).toHaveBeenCalledWith('Saved!')
   expect(screen.queryByText(/Editor:/)).not.toBeInTheDocument()
+})
+
+it('opens the editor from the header button', async () => {
+  const user = userEvent.setup()
+  setupToggle({ busy: false, saved: true })
+  render(<TodosPage />)
+  await user.click(screen.getByRole('button', { name: 'New task' }))
+  expect(screen.getByText('Editor: new')).toBeVisible()
 })
 
 it('confirms deletion for the chosen task and notifies when deleted', async () => {

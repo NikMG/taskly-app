@@ -48,6 +48,31 @@ describe('TodoForm', () => {
     })
   })
 
+  it('submits null for a due date that was cleared', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    render(
+      <TodoForm
+        initial={{
+          title: 'Plan',
+          description: '',
+          priority: 'medium',
+          due_date: '2026-12-01',
+          completed: false,
+        }}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+        busy={false}
+        error={null}
+      />,
+    )
+    await user.clear(screen.getByLabelText(/Due date/))
+    await user.click(screen.getByRole('button', { name: 'Save task' }))
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ due_date: null }),
+    )
+  })
+
   it('submits trimmed values and the selected priority', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     const user = userEvent.setup()
