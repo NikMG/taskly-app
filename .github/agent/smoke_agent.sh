@@ -235,7 +235,7 @@ SEED
 {"pull_request": {"draft": false, "labels": [],
   "user": {"login": "smoke", "type": "User"},
   "base": {"repo": {"full_name": "smoke/taskly"}},
-  "head": {"repo": {"full_name": "smoke/taskly"}}}}
+  "head": {"ref": "smoke/seeded-change", "repo": {"full_name": "smoke/taskly"}}}}
 EVENT
   git_copy diff --name-status -z --find-renames main...HEAD >"$context/name-status"
   git_copy diff --numstat -z --find-renames main...HEAD >"$context/numstat"

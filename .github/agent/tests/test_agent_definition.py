@@ -6,6 +6,7 @@ import re
 import shlex
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -367,3 +368,22 @@ def test_smoke_judges_from_the_log_not_the_report():
 def test_codeowners_covers_the_control_plane():
     lines = dict(line.split() for line in CODEOWNERS.read_text(encoding="utf-8").splitlines() if line.strip())
     assert lines == {".claude/": "@NikMG", ".github/": "@NikMG", "CLAUDE.md": "@NikMG", ".mcp.json": "@NikMG"}
+
+
+def test_smoke_event_passes_scope_validation(tmp_path):
+    block = SMOKE.read_text().split("<<'EVENT'\n", 1)[1].split("\nEVENT\n", 1)[0]
+    event = tmp_path / "event.json"
+    event.write_text(block)
+    path = "backend/app/features/todos/validators.py"
+    (tmp_path / "name-status").write_bytes(f"M\0{path}\0".encode())
+    (tmp_path / "numstat").write_bytes(f"7\t0\t{path}\0".encode())
+    (tmp_path / "message").write_text("add overdue helper\n")
+    output = tmp_path / "scope.json"
+    result = subprocess.run(
+        [sys.executable, "-I", str(SMOKE.parent / "scope_changes.py"), "--event", str(event),
+         "--name-status", str(tmp_path / "name-status"), "--numstat", str(tmp_path / "numstat"),
+         "--head-commit-message", str(tmp_path / "message"), "--output", str(output)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text())["run_agent"] is True

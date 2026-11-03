@@ -1,0 +1,8 @@
+{
+  "name": "test-agent-claude-cli",
+  "private": true,
+  "description": "Pins the Claude Code CLI used by test-agent.yml, with integrity hashes in the lockfile.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.316"
+  }
+}

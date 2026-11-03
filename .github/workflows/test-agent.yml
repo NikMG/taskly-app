@@ -1,0 +1,413 @@
+name: Test agent
+
+# Trust boundary: everything that runs comes from the base commit, checked out to
+# trusted/. The PR head is data, or runs inside run_tests.sh. Secrets and write access
+# are limited to same-repo PRs. A same-repo author with write access can edit this
+# workflow itself, so the boundary is against forks and prompt injection in PR content,
+# not against repository writers.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+permissions: {}
+
+# Closing gets its own group, so that a later event cannot cancel the cleanup.
+concurrency:
+  group: test-agent-${{ github.event.pull_request.number }}-${{ github.event.action == 'closed' && 'cleanup' || 'run' }}
+  cancel-in-progress: ${{ github.event.action != 'closed' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  scope:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      run_agent: ${{ steps.result.outputs.run_agent }}
+      stacks: ${{ steps.result.outputs.stacks }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      # From the base repository even for forks: refs/pull holds the commits, and the
+      # base commit is guaranteed to be there too.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compute scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          ctx="$RUNNER_TEMP/scope"
+          raw="$RUNNER_TEMP/scope-raw"
+          mkdir -p "$ctx" "$raw"
+          git_head() { git -C head -c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.quotePath=false "$@"; }
+          range="$BASE_SHA...$HEAD_SHA"
+          # A file left out fails closed: scope_changes.py reports scope_error.
+          git_head diff --no-ext-diff --name-status -z --find-renames "$range" > "$raw/name-status" || rm -f "$raw/name-status"
+          git_head diff --no-ext-diff --numstat -z --find-renames "$range" > "$raw/numstat" || rm -f "$raw/numstat"
+          git_head log -1 --format=%B "$HEAD_SHA" > "$raw/message" || rm -f "$raw/message"
+          git_head diff --no-ext-diff --no-textconv --no-color --find-renames "$range" > "$ctx/pr.diff" || : > "$ctx/pr.diff"
+          python3 trusted/.github/agent/scope_changes.py \
+            --event "$GITHUB_EVENT_PATH" --name-status "$raw/name-status" --numstat "$raw/numstat" \
+            --head-commit-message "$raw/message" --output "$ctx/scope.json" \
+            || echo "::warning::scope_changes.py failed closed"
+      - name: Set job outputs from scope.json
+        id: result
+        run: |
+          python3 -I - "$RUNNER_TEMP/scope/scope.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              scope = json.load(f)
+          stacks = [s for s in ("backend", "frontend") if s in scope["stacks"]]
+          print("run_agent=" + ("true" if scope["run_agent"] is True and stacks else "false"))
+          print("stacks=" + json.dumps(stacks, separators=(",", ":")))
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: report-scope
+          path: ${{ runner.temp }}/scope
+          if-no-files-found: error
+          retention-days: 7
+      # publish does not run for forks and their token is read-only, so this is all they get.
+      - name: Write the job summary when skipped
+        if: steps.result.outputs.run_agent != 'true'
+        run: |
+          python3 trusted/.github/agent/render_report.py \
+            --scope "$RUNNER_TEMP/scope/scope.json" --output "$RUNNER_TEMP/summary.md"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+  prepare:
+    needs: scope
+    if: needs.scope.outputs.run_agent == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+      - name: Install dependencies in the sandbox and pack them
+        env:
+          STACKS: ${{ needs.scope.outputs.stacks }}
+        run: |
+          export AGENT_WORKSPACE="$GITHUB_WORKSPACE/head"
+          export AGENT_DEPS_DIR="$RUNNER_TEMP/deps"
+          mkdir -p "$RUNNER_TEMP/deps-tar"
+          mapfile -t stacks < <(jq -r '.[]' <<<"$STACKS")
+          for stack in "${stacks[@]}"; do
+            case "$stack" in backend|frontend) ;; *) exit 1 ;; esac
+            # The prefix keeps install output from being parsed as workflow commands.
+            trusted/.github/agent/prepare_sandbox.sh "$stack" 2>&1 | sed "s/^/$stack: /"
+            # tar, because upload-artifact would flatten the symlinks in node_modules.
+            tar -C "$AGENT_DEPS_DIR/$stack" -cf "$RUNNER_TEMP/deps-tar/$stack.tar" .
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sandbox-deps
+          path: ${{ runner.temp }}/deps-tar
+          if-no-files-found: error
+          retention-days: 1
+
+  generate:
+    needs: [scope, prepare]
+    if: needs.scope.outputs.run_agent == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # Above the agent's own 25 minute limit, so that a timeout is reported, not cancelled.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      agent_exit: ${{ steps.agent.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: workspace
+          persist-credentials: false
+      - name: Overlay the trusted agent definition
+        run: |
+          rm -rf workspace/.claude workspace/.github/agent
+          mkdir -p workspace/.github
+          cp -R trusted/.claude workspace/.claude
+          cp -R trusted/.github/agent workspace/.github/agent
+          # Staged, because run_agent.sh diffs the worktree against the index.
+          git -C workspace -c core.hooksPath=/dev/null -c core.fsmonitor=false add -f --all -- .claude .github/agent
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: report-scope
+          path: ${{ runner.temp }}/context
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sandbox-deps
+          path: ${{ runner.temp }}/deps-tar
+      - name: Build sandbox images and restore dependencies
+        env:
+          STACKS: ${{ needs.scope.outputs.stacks }}
+        run: |
+          mapfile -t stacks < <(jq -r '.[]' <<<"$STACKS")
+          for stack in "${stacks[@]}"; do
+            case "$stack" in backend|frontend) ;; *) exit 1 ;; esac
+            docker build --quiet --target "$stack" -t "taskly-agent-sandbox:$stack" - < trusted/.github/agent/sandbox.Dockerfile
+            # PR lockfiles shaped this tar. Its contents are only ever used inside the sandbox.
+            # Under context/ because the Bash sandbox only shows the agent's working directories.
+            mkdir -p "$RUNNER_TEMP/context/deps/$stack"
+            tar -C "$RUNNER_TEMP/context/deps/$stack" -xf "$RUNNER_TEMP/deps-tar/$stack.tar" \
+              --no-same-owner --no-same-permissions --no-overwrite-dir
+          done
+      - name: Install the report validator
+        run: |
+          python3 -m venv "$RUNNER_TEMP/agent-venv"
+          "$RUNNER_TEMP/agent-venv/bin/pip" install --quiet --disable-pip-version-check \
+            --only-binary=:all: --require-hashes -r trusted/.github/agent/requirements.txt
+      # No cache: this job holds the API key.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Install Claude Code
+        run: |
+          cli="$RUNNER_TEMP/claude-cli"
+          mkdir -p "$cli"
+          cp trusted/.github/agent/claude-cli/package.json trusted/.github/agent/claude-cli/package-lock.json "$cli/"
+          cd "$cli"
+          npm ci --ignore-scripts --no-audit --no-fund
+          # --ignore-scripts leaves bin/claude.exe as a stub. This is the one script wanted:
+          # the pinned package's own postinstall, which links its platform binary.
+          (cd node_modules/@anthropic-ai/claude-code && node install.cjs)
+          node_modules/.bin/claude --version
+      # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 runs Bash through bubblewrap, which also needs
+      # socat, with new user and PID namespaces. It masks /run/docker.sock and hides anything
+      # outside the agent's working directories. Bash can only ever run the allow-listed
+      # run_tests.sh (agent-settings.json), and that needs docker, so the socket is exposed
+      # inside context/. The API key stays out of Bash either way.
+      - name: Set up the Bash sandbox
+        run: |
+          if ! command -v bwrap >/dev/null || ! command -v socat >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends bubblewrap socat
+          fi
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+            sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          socket="$RUNNER_TEMP/context/docker.sock"
+          touch "$socket"
+          sudo mount --bind /run/docker.sock "$socket"
+      - name: Pre-flight (no LLM) Bash sandbox starts and reaches docker
+        run: |
+          socket="$RUNNER_TEMP/context/docker.sock"
+          echo "bwrap: $(bwrap --version)"
+          echo "apparmor_restrict_unprivileged_userns: $(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)"
+          fail=0
+          check() {
+            local label=$1
+            shift
+            if "$@"; then
+              echo "PRE-FLIGHT OK: $label"
+            else
+              echo "::error::PRE-FLIGHT FAILED: $label"
+              fail=1
+            fi
+          }
+          check "socat, which the sandbox requires" command -v socat
+          check "unshare --user --pid" unshare --user --pid --fork true
+          check "bwrap with the same namespaces as the Bash tool" \
+            bwrap --ro-bind / / --dev /dev --unshare-user --unshare-pid --proc /proc -- true
+          check "docker through the exposed socket, inside bwrap, with /run/docker.sock masked" \
+            bwrap --ro-bind / / --dev /dev --unshare-user --unshare-pid --proc /proc \
+              --ro-bind /dev/null /run/docker.sock --setenv DOCKER_HOST "unix://$socket" -- \
+              docker version --format '{{.Server.Version}}'
+          # The permission hook runs python3 with almost no environment.
+          check "python3 for the Bash permission hook" env -i "PATH=$PATH" python3 -I -c 'import json, re, sys'
+          # Stop before spending tokens: the agent could not run a single test.
+          exit "$fail"
+      - name: Run the agent
+        id: agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENT_WORKSPACE: ${{ github.workspace }}/workspace
+          AGENT_MAX_BUDGET_USD: "3"
+          AGENT_TIMEOUT_SECONDS: "1500"
+        run: |
+          export AGENT_OUTPUT_DIR="$RUNNER_TEMP/agent-out"
+          export AGENT_CONTEXT_DIR="$RUNNER_TEMP/context"
+          export AGENT_DEPS_DIR="$AGENT_CONTEXT_DIR/deps"
+          export AGENT_PYTHON="$RUNNER_TEMP/agent-venv/bin/python"
+          export DOCKER_HOST="unix://$AGENT_CONTEXT_DIR/docker.sock"
+          export PATH="$RUNNER_TEMP/claude-cli/node_modules/.bin:$PATH"
+          mkdir -p "$AGENT_OUTPUT_DIR"
+          rc=0
+          trusted/.github/agent/run_agent.sh pr > "$RUNNER_TEMP/run_agent.out" 2>&1 || rc=$?
+          # The prefix keeps agent output from being parsed as workflow commands.
+          sed 's/^/run_agent: /' "$RUNNER_TEMP/run_agent.out"
+          echo "$rc" > "$AGENT_OUTPUT_DIR/agent_exit_code"
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: report-agent
+          path: |
+            ${{ runner.temp }}/agent-out/agent.patch
+            ${{ runner.temp }}/agent-out/report.json
+            ${{ runner.temp }}/agent-out/agent.log
+            ${{ runner.temp }}/agent-out/agent.stderr
+            ${{ runner.temp }}/agent-out/agent_exit_code
+          if-no-files-found: warn
+          retention-days: 7
+
+  verify:
+    needs: [scope, prepare, generate]
+    if: ${{ !cancelled() && needs.generate.result == 'success' }}
+    runs-on: ubuntu-latest
+    # Up to 4 runs per stack at 5 minutes each, plus setup.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: report-scope
+          path: ${{ runner.temp }}/context
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: report-agent
+          path: ${{ runner.temp }}/agent
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sandbox-deps
+          path: ${{ runner.temp }}/deps-tar
+      - name: Build sandbox images and restore dependencies
+        env:
+          STACKS: ${{ needs.scope.outputs.stacks }}
+        run: |
+          mapfile -t stacks < <(jq -r '.[]' <<<"$STACKS")
+          for stack in "${stacks[@]}"; do
+            case "$stack" in backend|frontend) ;; *) exit 1 ;; esac
+            docker build --quiet --target "$stack" -t "taskly-agent-sandbox:$stack" - < trusted/.github/agent/sandbox.Dockerfile
+            # PR lockfiles shaped this tar. Its contents are only ever used inside the sandbox.
+            mkdir -p "$RUNNER_TEMP/deps/$stack"
+            tar -C "$RUNNER_TEMP/deps/$stack" -xf "$RUNNER_TEMP/deps-tar/$stack.tar" \
+              --no-same-owner --no-same-permissions --no-overwrite-dir
+          done
+      - name: Verify the patch
+        run: |
+          python3 trusted/.github/agent/verify_patch.py \
+            --scope "$RUNNER_TEMP/context/scope.json" --pr-diff "$RUNNER_TEMP/context/pr.diff" \
+            --patch "$RUNNER_TEMP/agent/agent.patch" --workspace "$GITHUB_WORKSPACE/head" \
+            --deps "$RUNNER_TEMP/deps" --work-dir "$RUNNER_TEMP/verify-work" \
+            --output-dir "$RUNNER_TEMP/verify"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: report-verify
+          path: ${{ runner.temp }}/verify
+          if-no-files-found: warn
+          retention-days: 7
+
+  publish:
+    needs: [scope, prepare, generate, verify]
+    # Dependabot runs get a read-only token even in the same repository.
+    if: >-
+      always() && github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      # Without a name this tolerates missing artifacts, so a comment is still rendered.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: report-*
+          path: ${{ runner.temp }}/artifacts
+      - name: Install the report validator
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --disable-pip-version-check \
+            --only-binary=:all: --require-hashes -r trusted/.github/agent/requirements.txt \
+            || echo "::warning::agent claims cannot be validated and will not be rendered"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          export ARTIFACTS_DIR="$RUNNER_TEMP/artifacts"
+          "$RUNNER_TEMP/venv/bin/python" trusted/.github/agent/publish_results.py
+
+  cleanup:
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Close the bot pull request and delete its branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || exit 1
+          branch="test-agent/pr-$PR_NUMBER"
+          repo="$GITHUB_REPOSITORY"
+          numbers=$(gh api --method GET --paginate "repos/$repo/pulls" \
+            -f state=open -f "head=${repo%%/*}:$branch" -f per_page=100 \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .number')
+          for number in $numbers; do
+            gh api --method POST "repos/$repo/issues/$number/comments" \
+              -f "body=Closed automatically: the source pull request was closed." >/dev/null
+            gh api --method PATCH "repos/$repo/pulls/$number" -f state=closed >/dev/null
+          done
+          if gh api "repos/$repo/git/ref/heads/$branch" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/$repo/git/refs/heads/$branch"
+          fi
