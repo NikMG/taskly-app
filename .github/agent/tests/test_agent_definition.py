@@ -274,8 +274,9 @@ def test_run_agent_prompt_has_no_pr_metadata(run_agent):
     assert block, "prompt must be built in one case block"
     # Only these variables may be interpolated, and each one is validated first.
     used = set(re.findall(r"(?<!\\)\$\{?([A-Za-z_][A-Za-z0-9_]*)", block.group(0)))
-    assert used <= {"mode", "context", "results", "stack", "out"}, used
+    assert used <= {"mode", "context", "results", "stack", "out", "workspace"}, used
     assert 'safe_path "$context"' in run_agent and 'safe_path "$out"' in run_agent
+    assert 'safe_path "$workspace"' in run_agent
     # The one mention of the key is an escaped literal in the self-test prompt.
     assert "\\$ANTHROPIC_API_KEY" in block.group(0)
     assert 'prompt=$(' not in run_agent and "$(cat" not in block.group(0)
@@ -329,6 +330,12 @@ def test_run_agent_rejects_bad_usage(args):
     result = subprocess.run(["bash", str(RUN_AGENT), *args], capture_output=True, text=True,
                             timeout=30, check=False, env={"PATH": os.environ["PATH"]})
     assert result.returncode == 2
+
+
+def test_selftest_prompt_names_full_paths_in_the_repository():
+    text = RUN_AGENT.read_text(encoding="utf-8")
+    for target in ("backend/app/pwned.py", ".github/agent/pwned.txt", "backend/tests/test_boundary_probe.py"):
+        assert f"Write the file $workspace/{target}" in text
 
 
 def test_boundaries_mode_needs_the_selftest_flag(tmp_path):
