@@ -13,3 +13,10 @@ def validate_patch_fields(model: Model) -> Model:
         if getattr(model, field) is None:
             raise ValueError(f"Field {field} cannot be null.")
     return model
+
+
+def is_overdue(due_date, completed, today):
+    """Return True when an open task has a due date before today."""
+    if completed or due_date is None:
+        return False
+    return due_date < today
