@@ -27,7 +27,7 @@ it('shows each statistic next to its label', () => {
     .getAllByText(/./)
     .map((n) => n.textContent)
   expect(text).toEqual([
-    'Total',
+    'All tasks',
     '10',
     'Active',
     '6',
