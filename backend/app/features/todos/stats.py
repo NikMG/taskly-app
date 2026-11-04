@@ -20,4 +20,4 @@ def calculate_stats(todos: list[Todo], today: date) -> TodoStats:
 def completion_percent(stats: TodoStats) -> int:
     if stats.total == 0:
         return 0
-    return round(stats.completed * 100 / stats.total)
+    return stats.completed * 100 // stats.total
