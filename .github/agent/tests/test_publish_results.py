@@ -425,3 +425,70 @@ def test_token_never_reaches_argv_or_url(tmp_path, monkeypatch, capfd):
     with_header = [args for args, env in seen if "GIT_CONFIG_VALUE_0" in env]
     assert sorted(a[a.index("core.fsmonitor=false") + 1] for a in with_header) == ["fetch", "push"]
     assert "s3cret-token" not in capfd.readouterr().out
+
+
+# ---------------------------------------------------------------- GitHub outages
+
+@pytest.fixture
+def gh_cli(monkeypatch):
+    """Scripted `gh` results; records calls and never sleeps."""
+    class Cli:
+        script: list = []
+        calls: list = []
+
+    cli = Cli()
+    cli.calls = []
+    monkeypatch.setattr(pr.time, "sleep", lambda _: None)
+
+    def run(args, **_):
+        cli.calls.append(args)
+        rc, out, err = cli.script.pop(0)
+        return subprocess.CompletedProcess(args, rc, out.encode(), err.encode())
+
+    monkeypatch.setattr(pr.subprocess, "run", run)
+    return cli
+
+
+def test_server_error_is_retried(gh_cli):
+    gh_cli.script = [(1, "", "gh: Server Error (HTTP 502)"), (0, '{"ok": true}', "")]
+    assert pr.gh_api("POST", "x", {"a": 1}) == {"ok": True}
+    assert len(gh_cli.calls) == 2
+
+
+def test_lasting_server_error_gives_up(gh_cli):
+    gh_cli.script = [(1, "", "gh: Server Error (HTTP 502)")] * 3
+    with pytest.raises(pr.PublishError, match="502"):
+        pr.gh_api("GET", "x")
+    assert len(gh_cli.calls) == 3
+
+
+def test_client_error_is_not_retried(gh_cli):
+    gh_cli.script = [(1, "", "gh: Validation Failed (HTTP 422)")]
+    with pytest.raises(pr.PublishError, match="422"):
+        pr.gh_api("POST", "x", {})
+    assert len(gh_cli.calls) == 1
+
+
+def test_bot_pr_created_by_a_request_that_reported_an_error_is_found(monkeypatch):
+    found = [{"number": 9, "html_url": "https://example.test/9", "user": {"login": pr.BOT_LOGIN}}]
+    answers = [[], pr.PublishError("POST: A pull request already exists (HTTP 422)"), found]
+
+    def fake(*_, **__):
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(pr, "gh_api", fake)
+    assert pr.upsert_bot_pr("o/r", "1", "main", "test-agent/pr-1", "body") == "https://example.test/9"
+
+
+def test_other_errors_creating_the_bot_pr_still_fail(monkeypatch):
+    def fake(method, *_, **__):
+        if method == "POST":
+            raise pr.PublishError("POST: Forbidden (HTTP 403)")
+        return []
+
+    monkeypatch.setattr(pr, "gh_api", fake)
+    with pytest.raises(pr.PublishError, match="403"):
+        pr.upsert_bot_pr("o/r", "1", "main", "test-agent/pr-1", "body")

@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -91,16 +92,26 @@ def decide(needs: Any, scope: Any, verify: Any, report: Any, patch: bytes | None
 
 # ---------------------------------------------------------------- GitHub API
 
+RETRY_DELAYS_SECONDS = (5, 15)
+SERVER_ERROR_RE = re.compile(r"HTTP 5\d\d")
+
+
 def gh_api(method: str, path: str, body: Any = None, paginate: bool = False) -> Any:
     args = ["gh", "api", "--method", method, path]
     if paginate:
         args += ["--paginate", "--slurp"]
     if body is not None:
         args += ["--input", "-"]
-    proc = subprocess.run(args, input=None if body is None else json.dumps(body).encode(),
-                          capture_output=True, timeout=120, check=False)
+    for delay in (*RETRY_DELAYS_SECONDS, None):
+        proc = subprocess.run(args, input=None if body is None else json.dumps(body).encode(),
+                              capture_output=True, timeout=120, check=False)
+        error = proc.stderr.decode("utf-8", "replace").strip()
+        # GitHub's own outages are worth waiting out; a 4xx will not change.
+        if proc.returncode == 0 or delay is None or not SERVER_ERROR_RE.search(error):
+            break
+        time.sleep(delay)
     if proc.returncode != 0:
-        raise PublishError(f"{method} {path}: " + proc.stderr.decode("utf-8", "replace").strip()[:500])
+        raise PublishError(f"{method} {path}: {error[:500]}")
     if paginate:
         return [item for page in json.loads(proc.stdout) for item in page]
     return json.loads(proc.stdout) if proc.stdout.strip() else None
@@ -129,8 +140,18 @@ def upsert_bot_pr(repo: str, number: str, base_ref: str, branch: str, body: str)
     if pulls:
         return gh_api("PATCH", f"repos/{repo}/pulls/{pulls[0]['number']}",
                       {"title": title, "body": body, "base": base_ref})["html_url"]
-    return gh_api("POST", f"repos/{repo}/pulls",
-                  {"title": title, "head": branch, "base": base_ref, "body": body})["html_url"]
+    try:
+        return gh_api("POST", f"repos/{repo}/pulls",
+                      {"title": title, "head": branch, "base": base_ref, "body": body})["html_url"]
+    except PublishError as error:
+        # A request that reported a server error may still have created the pull request.
+        if "already exists" not in str(error):
+            raise
+    pulls = [p for p in gh_api("GET", f"repos/{repo}/pulls?{query}", paginate=True)
+             if p.get("user", {}).get("login") == BOT_LOGIN]
+    if not pulls:
+        raise PublishError(f"no pull request found for {branch}")
+    return pulls[0]["html_url"]
 
 
 def post_check(repo: str, sha: str, outcome: str, run_url: str) -> None:
