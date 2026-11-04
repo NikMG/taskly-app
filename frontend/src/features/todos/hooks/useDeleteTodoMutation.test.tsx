@@ -39,6 +39,18 @@ it('does not create a list when none is cached', async () => {
   expect(client.getQueryData(todoKeys.list)).toBeUndefined()
 })
 
+it('invalidates the stats on success only', async () => {
+  const { client, wrapper } = setup()
+  client.setQueryData(todoKeys.stats, { total: 0 })
+  vi.mocked(todosApi.remove).mockRejectedValue(new Error('nope'))
+  const { result } = renderHook(() => useDeleteTodoMutation(), { wrapper })
+  await act(() => result.current.mutateAsync(7).catch(() => undefined))
+  expect(client.getQueryState(todoKeys.stats)?.isInvalidated).toBe(false)
+  vi.mocked(todosApi.remove).mockResolvedValue(undefined)
+  await act(() => result.current.mutateAsync(7))
+  expect(client.getQueryState(todoKeys.stats)?.isInvalidated).toBe(true)
+})
+
 it('keeps the task in the cache when deletion fails', async () => {
   const { client, wrapper } = setup()
   client.setQueryData(todoKeys.list, [todoFixture])

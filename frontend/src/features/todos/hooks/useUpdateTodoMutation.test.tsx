@@ -42,6 +42,20 @@ it('does not create a list when none is cached', async () => {
   expect(client.getQueryData(todoKeys.list)).toBeUndefined()
 })
 
+it('invalidates the stats on success only', async () => {
+  const { client, wrapper } = setup()
+  client.setQueryData(todoKeys.stats, { total: 0 })
+  vi.mocked(todosApi.update).mockRejectedValue(new Error('nope'))
+  const { result } = renderHook(() => useUpdateTodoMutation(), { wrapper })
+  await act(() =>
+    result.current.mutateAsync({ id: 7, input: {} }).catch(() => undefined),
+  )
+  expect(client.getQueryState(todoKeys.stats)?.isInvalidated).toBe(false)
+  vi.mocked(todosApi.update).mockResolvedValue(todoFixture)
+  await act(() => result.current.mutateAsync({ id: 7, input: {} }))
+  expect(client.getQueryState(todoKeys.stats)?.isInvalidated).toBe(true)
+})
+
 it('leaves the cache unchanged on failure', async () => {
   const { client, wrapper } = setup()
   client.setQueryData(todoKeys.list, [todoFixture])
