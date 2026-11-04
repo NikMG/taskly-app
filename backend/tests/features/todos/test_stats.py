@@ -1,7 +1,9 @@
 from datetime import date
 
 from app.features.todos.schemas import TodoStats
-from app.features.todos.stats import calculate_stats
+import pytest
+
+from app.features.todos.stats import calculate_stats, completion_percent
 
 TODAY = date(2026, 10, 15)
 
@@ -19,6 +21,17 @@ def test_counts_completed_and_active(todo):
     assert calculate_stats(todos, TODAY) == TodoStats(
         total=3, completed=1, active=2, overdue=0
     )
+
+
+@pytest.mark.parametrize(
+    ("total", "completed", "expected"),
+    [(0, 0, 0), (4, 0, 0), (4, 4, 100), (4, 1, 25), (3, 1, 33), (3, 2, 66)],
+)
+def test_completion_percent_rounds_down_and_handles_empty(total, completed, expected):
+    stats = TodoStats(
+        total=total, completed=completed, active=total - completed, overdue=0
+    )
+    assert completion_percent(stats) == expected
 
 
 def test_overdue_only_counts_active_tasks_due_before_today(todo):
