@@ -6,7 +6,7 @@ export function TodoStats() {
   if (!data) return null
 
   const items = [
-    ['All tasks', data.total],
+    ['Total', data.total],
     ['Active', data.active],
     ['Completed', data.completed],
     ['Overdue', data.overdue],
