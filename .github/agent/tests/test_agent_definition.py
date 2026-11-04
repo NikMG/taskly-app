@@ -416,6 +416,17 @@ def test_backfill_keeps_going_until_the_gap_check_passes_but_within_a_limit():
     assert '"$current_patch" = "$previous_patch"' in text
 
 
+def test_backfill_stops_when_more_passes_cannot_help():
+    text = BACKFILL.read_text(encoding="utf-8")
+    assert 'if [ "$agent_rc" = 4 ]; then' in text and 'if [ "$patch_rc" != 0 ]; then' in text
+    # A pass that left no patch must reach the summary rather than stop the script.
+    assert 'cksum <"$out/agent.patch" 2>/dev/null || true' in text
+
+
+def test_nested_git_directories_cannot_be_edited(settings):
+    assert "Edit(//**/.git/**)" in settings["permissions"]["deny"]
+
+
 def test_backfill_gives_the_key_only_to_the_agent_step():
     text = BACKFILL.read_text(encoding="utf-8")
     assert "unset ANTHROPIC_API_KEY" in text and "export ANTHROPIC_API_KEY" not in text

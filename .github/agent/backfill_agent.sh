@@ -76,6 +76,10 @@ for pass in $(seq 1 "$max_passes"); do
   ANTHROPIC_API_KEY=$api_key AGENT_MAX_BUDGET_USD=${AGENT_MAX_BUDGET_USD:-1.5} AGENT_OUTPUT_DIR=$out \
     "$agent_dir/run_agent.sh" backfill "$stack"
   agent_rc=$?
+  if [ "$agent_rc" = 4 ]; then
+    echo "backfill_agent.sh: stopping, because the key appeared in the agent outputs. Rotate it." >&2
+    exit 4
+  fi
   "$AGENT_PYTHON" -I "$agent_dir/check_patch.py" "$out/agent.patch" --output "$out/patch_check.json"
   patch_rc=$?
   AGENT_OUTPUT_DIR=$tmp/verify "$agent_dir/run_tests.sh" "$stack" --coverage >"$tmp/verify.log" 2>&1
@@ -90,7 +94,12 @@ for pass in $(seq 1 "$max_passes"); do
   if [ "$agent_rc" = 0 ] && [ "$patch_rc" = 0 ] && [ "$tests_rc" = 0 ] && [ "$gaps_rc" = 0 ]; then
     break
   fi
-  current_patch=$(cksum <"$out/agent.patch")
+  # Another pass gets no word of what the guard rejected, so it could not fix it.
+  if [ "$patch_rc" != 0 ]; then
+    echo "The patch was rejected: see $out/patch_check.json."
+    break
+  fi
+  current_patch=$(cksum <"$out/agent.patch" 2>/dev/null || true)
   if [ "$current_patch" = "$previous_patch" ]; then
     echo "The last pass changed nothing, so another would not help."
     break

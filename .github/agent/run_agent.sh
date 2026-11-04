@@ -275,8 +275,9 @@ for secret in "${ANTHROPIC_API_KEY:-}" "${CLAUDE_CODE_OAUTH_TOKEN:-}"; do
   [ -n "$secret" ] || continue
   hits=$(grep -rlF -f <(printf '%s\n' "$secret") "$out" 2>/dev/null || true)
   if [ -n "$hits" ]; then
-    # shellcheck disable=SC2086
-    rm -f $hits
+    while IFS= read -r hit; do
+      rm -f "$hit"
+    done <<<"$hits"
     echo "run_agent.sh: a credential appeared in the outputs; those files were deleted" >&2
     exit 4
   fi

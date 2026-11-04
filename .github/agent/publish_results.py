@@ -45,9 +45,9 @@ class PublishError(Exception):
 
 # ---------------------------------------------------------------- deciding
 
-def is_superseded(needs: Any) -> bool:
-    """A cancelled job means a newer run took over. Job timeouts look the same; the job
-    limits are set above the inner limits so that those are reported by the inner steps."""
+def has_cancelled_job(needs: Any) -> bool:
+    """A job was cancelled or timed out on a head that did not move. A newer push is caught
+    by comparing the live head, so this one is a failure and must not look like a skip."""
     if not isinstance(needs, dict):
         return False
     return any(isinstance(n, dict) and n.get("result") == "cancelled" for n in needs.values())
@@ -270,11 +270,13 @@ def publish(env: dict[str, str]) -> int:
     try:
         live = gh_api("GET", f"repos/{repo}/pulls/{number}")
         fresh = live["head"]["sha"] == head_sha and live["state"] == "open"
-    except (PublishError, KeyError, TypeError, ValueError) as e:
+    except (PublishError, KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError) as e:
         errors.append(str(e))
         fresh = True  # cannot tell; the outcome below is pipeline_error and pushes nothing
 
-    if not fresh or is_superseded(needs):
+    if has_cancelled_job(needs):
+        errors.append("a job was cancelled or timed out")
+    if not fresh:
         append_summary(f"## Test agent\n\n{rr.OUTCOME_TEXT['stale']}")
         try:
             post_check(repo, head_sha, "stale", run_url)

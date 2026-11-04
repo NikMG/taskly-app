@@ -54,6 +54,7 @@
       "Edit(~/.*/**)",
       "Read(.git/**)",
       "Edit(.git/**)",
+      "Edit(//**/.git/**)",
       "Edit(.claude/**)",
       "Edit(.github/**)",
       "Bash(curl *)",

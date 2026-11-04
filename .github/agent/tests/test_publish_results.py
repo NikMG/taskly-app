@@ -68,8 +68,8 @@ def test_conclusions_cover_every_outcome_and_only_errors_fail():
 
 @pytest.mark.parametrize("n,expected", [(needs(), False), (needs(verify="cancelled"), True),
                                          (needs(generate="cancelled"), True), (None, False), ("x", False)])
-def test_is_superseded(n, expected):
-    assert pr.is_superseded(n) is expected
+def test_has_cancelled_job(n, expected):
+    assert pr.has_cancelled_job(n) is expected
 
 
 @pytest.mark.parametrize("ref,ok", [("feature/a", True), ("main", True), ("-x", False), ("", False),
@@ -259,7 +259,15 @@ def test_stale_publishes_nothing(tmp_path, hub, pushed, summary, change):
     assert "Stale" in summary.read_text()
 
 
-def test_cancelled_job_is_treated_as_superseded(tmp_path, hub, pushed):
+def test_cancelled_job_on_an_unmoved_head_is_a_failure_not_a_skip(tmp_path, hub, pushed):
+    root = artifacts(tmp_path)
+    assert pr.publish(env_for(root, tmp_path, n=needs(verify="cancelled"))) == 1
+    assert pushed == [] and check_runs(hub) == [(SHA, "failure", "Test agent")]
+    assert "Pipeline error" in hub.named("POST", "/issues/7/comments")[0][2]["body"]
+
+
+def test_cancelled_job_after_a_new_push_is_stale(tmp_path, hub, pushed):
+    hub.head_sha = "f" * 40
     root = artifacts(tmp_path)
     assert pr.publish(env_for(root, tmp_path, n=needs(verify="cancelled"))) == 0
     assert not hub.named("POST", "/comments") and check_runs(hub) == [(SHA, "neutral", "Test agent")]
