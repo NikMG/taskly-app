@@ -12,6 +12,6 @@ def calculate_stats(todos: list[Todo], today: date) -> TodoStats:
     return TodoStats(
         total=len(todos),
         completed=completed,
-        active=len(todos) - completed - overdue,
+        active=len(todos) - completed,
         overdue=overdue,
     )
