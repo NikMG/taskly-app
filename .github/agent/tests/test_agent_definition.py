@@ -366,6 +366,17 @@ def test_updating_an_expectation_is_bounded_and_reported():
     assert "never remove an assertion to get a pass" in agent
 
 
+def test_last_update_diff_reaches_the_agent_safely():
+    workflow = (REPO / ".github/workflows/test-agent.yml").read_text(encoding="utf-8")
+    assert "BEFORE_SHA: ${{ github.event.before }}" in workflow
+    # Validated before use, and a force push leaves the file empty rather than failing.
+    assert '[[ "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] && git_head merge-base --is-ancestor' in workflow
+    assert ': > "$ctx/last_update.diff"' in workflow
+    assert "$context/last_update.diff" in RUN_AGENT.read_text(encoding="utf-8")
+    impact = (SKILLS_DIR / "analyze-test-impact" / "SKILL.md").read_text(encoding="utf-8")
+    assert "the order is unknown, so use `needs_human`" in impact
+
+
 def test_pr_mode_stays_on_the_changed_code():
     assert "Existing gaps elsewhere are not part of this mode." in AGENT_FILE.read_text(encoding="utf-8")
 
