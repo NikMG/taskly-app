@@ -80,3 +80,7 @@ Coverage — `backend/coverage/html/index.html`:
 ```sh
 python -m pytest --cov=app --cov-report=term-missing --cov-report=html
 ```
+
+## Statistics
+
+The tasks page shows totals from `GET /api/todos/stats`.
