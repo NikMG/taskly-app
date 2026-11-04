@@ -1,5 +1,7 @@
 # Taskly App
 
+The unit test agent and its pull request workflow are described in [SOLUTION.md](SOLUTION.md).
+
 ## Setup
 
 ```sh
