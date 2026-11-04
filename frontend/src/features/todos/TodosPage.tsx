@@ -5,6 +5,7 @@ import { useNotice } from '../../hooks/useNotice'
 import { DeleteTodoDialog } from './components/DeleteTodoDialog'
 import { TodoEditor } from './components/TodoEditor'
 import { TodoFilters } from './components/TodoFilters'
+import { TodoStats } from './components/TodoStats'
 import { TodoList } from './components/TodoList'
 import { TodosHeader } from './components/TodosHeader'
 import { useTodoFilters } from './hooks/useTodoFilters'
@@ -52,6 +53,7 @@ export function TodosPage() {
           disabled={todosQuery.isPending || busy}
           onCreate={() => setEditor('new')}
         />
+        <TodoStats />
         <TodoFilters
           filter={filters.filter}
           search={filters.search}

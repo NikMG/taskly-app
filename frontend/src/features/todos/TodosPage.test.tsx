@@ -26,6 +26,7 @@ vi.mock('./components/TodosHeader', () => ({
     </>
   ),
 }))
+vi.mock('./components/TodoStats', () => ({ TodoStats: () => null }))
 vi.mock('./components/TodoFilters', () => ({ TodoFilters: () => null }))
 vi.mock('./components/TodoList', () => ({
   TodoList: ({

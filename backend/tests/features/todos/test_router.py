@@ -11,6 +11,14 @@ def test_list_returns_tasks_from_repository(client, repository_mock, todo):
     repository_mock.list.assert_called_once_with()
 
 
+def test_stats_route_is_not_shadowed_by_get_by_id(client, repository_mock, todo):
+    repository_mock.list.return_value = [todo, todo.model_copy(update={"completed": True})]
+    response = client.get("/api/todos/stats")
+    assert response.status_code == 200
+    assert response.json() == {"total": 2, "completed": 1, "active": 1, "overdue": 0}
+    repository_mock.get.assert_not_called()
+
+
 def test_create_trims_input_and_returns_created_task(client, repository_mock, todo):
     repository_mock.create.return_value = todo
     response = client.post("/api/todos", json={"title": "  Plan the sprint  ", "priority": "high"})
