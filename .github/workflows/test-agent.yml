@@ -49,6 +49,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
           ctx="$RUNNER_TEMP/scope"
@@ -61,6 +62,12 @@ jobs:
           git_head diff --no-ext-diff --numstat -z --find-renames "$range" > "$raw/numstat" || rm -f "$raw/numstat"
           git_head log -1 --format=%B "$HEAD_SHA" > "$raw/message" || rm -f "$raw/message"
           git_head diff --no-ext-diff --no-textconv --no-color --find-renames "$range" > "$ctx/pr.diff" || : > "$ctx/pr.diff"
+          # What the latest push alone changed, so the agent can tell a new change from a stale test.
+          # Empty on a first run or after a force push, when the order is unknown.
+          : > "$ctx/last_update.diff"
+          if [[ "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] && git_head merge-base --is-ancestor "$BEFORE_SHA" "$HEAD_SHA"; then
+            git_head diff --no-ext-diff --no-textconv --no-color --find-renames "$BEFORE_SHA..$HEAD_SHA" > "$ctx/last_update.diff" || : > "$ctx/last_update.diff"
+          fi
           python3 trusted/.github/agent/scope_changes.py \
             --event "$GITHUB_EVENT_PATH" --name-status "$raw/name-status" --numstat "$raw/numstat" \
             --head-commit-message "$raw/message" --output "$ctx/scope.json" \

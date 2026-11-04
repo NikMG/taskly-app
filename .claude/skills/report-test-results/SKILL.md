@@ -58,7 +58,7 @@ Do not list tests you dropped.
 
 `suspected_bugs` (at most 20): production behaviour that looks wrong.
 
-- `path` and `line`: the source location. `line` is an integer, or `null` if it has no single line.
+- `path` and `line`: the source location. `line` is the line number in that source file, not in a diff. It is an integer, or `null` if it has no single line.
 - `description` (at most 500 characters): what is wrong and why you think so.
 - `evidence` (at most 500 characters): the input and result you observed, or the contradiction you read. Say which: "observed in test run" or "from reading the code, not run".
 
